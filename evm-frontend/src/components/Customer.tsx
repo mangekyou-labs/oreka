@@ -10,7 +10,7 @@ import { BigNumber } from 'ethers';
 import { motion, useAnimation } from 'framer-motion';
 import Owner from './Owner';
 import BinaryOptionMarket from '../../../out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
-import { useRouter } from 'next/router';
+
 enum Side { Long, Short }
 enum Phase { Bidding, Trading, Maturity, Expiry }
 
@@ -18,6 +18,17 @@ interface Coin {
   value: string;
   label: string;
 }
+
+export const fetchMarketDetails = async (contract: ethers.Contract) => {
+  try {
+    const phase = await contract.currentPhase();
+    const oracleDetails = await contract.oracleDetails();
+    return { phase, oracleDetails };
+  } catch (error) {
+    console.error("Error fetching market details:", error);
+    throw error;
+  }
+};
 
 function Customer() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -40,6 +51,7 @@ function Customer() {
   const [reward, setReward] = useState(0); // Số phần thưởng khi người chơi thắng
   const [contract, setContract] = useState<ethers.Contract | null>(null);
   const [positions, setPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
+  const [contractAddress, setContractAddress] = useState('');
 
   const [availableCoins] = useState<Coin[]>([
     { value: "0x5fbdb2315678afecb367f032d93f642f64180aa3", label: "WIF/USD" },
@@ -49,17 +61,21 @@ function Customer() {
 
   const toast = useToast();
   const priceControls = useAnimation();
-  const router = useRouter(); // Initialize the router
-  const [contractAddress, setContractAddress] = useState<string>("");
+  //const contractAddress = "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e";  // Địa chỉ contract của bạn
+  useEffect(() => {
+    // Đọc địa chỉ từ localStorage khi component mount
+    const savedAddress = localStorage.getItem('selectedContractAddress');
+    if (savedAddress) {
+        setContractAddress(savedAddress);
+    }
+  }, []);
 
   useEffect(() => {
-    // Check if contractAddress is available in the query parameters
-    if (router.query.contractAddress) {
-      setContractAddress(router.query.contractAddress as string); // Set the contractAddress from query
-    } else {
-      setContractAddress("0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"); // Default address if not provided
-    }
-  }, [router.query.contractAddress]); 
+    return () => {
+        // Xóa địa chỉ khỏi localStorage khi rời khỏi trang
+        localStorage.removeItem('selectedContractAddress');
+    };
+  }, []);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -73,7 +89,7 @@ function Customer() {
   useEffect(() => {
     const interval = setInterval(() => {
       if (contract) {
-        fetchMarketDetails();
+        fetchMarketDetails(contract);
       }
     }, 5000); // Gọi hàm mỗi 5 giây
     return () => clearInterval(interval); // Clear interval khi component bị unmount
@@ -142,26 +158,23 @@ useEffect(() => {
   };
 
   // Lấy trạng thái từ smart contract
-  
-  const fetchMarketDetails = useCallback(async () => {
-    if (contract) {
-      try {
-        const phase = await contract.currentPhase();
-        setCurrentPhase(phase);
-        const oracleDetails = await contract.oracleDetails();
-        const strikePriceBN = BigNumber.from(oracleDetails.strikePrice);
-        const finalPriceBN = BigNumber.from(oracleDetails.finalPrice);
-        
-        console.log("Strike Price:", oracleDetails.strikePrice);
-        console.log("Final Price:", oracleDetails.finalPrice);
-        
-        setStrikePrice(parseFloat(ethers.utils.formatUnits(strikePriceBN, 0))); // Giả định 8 số thập phân
-        setFinalPrice(parseFloat(ethers.utils.formatUnits(finalPriceBN, 0)));   // Giả định 8 số thập phân
-      } catch (error: any) {
-        console.error("Error fetching market details:", error);
-      }
+  const fetchMarketDetails = useCallback(async (contract: ethers.Contract) => {
+    try {
+      const phase = await contract.currentPhase();
+      setCurrentPhase(phase);
+      const oracleDetails = await contract.oracleDetails();
+      const strikePriceBN = BigNumber.from(oracleDetails.strikePrice);
+      const finalPriceBN = BigNumber.from(oracleDetails.finalPrice);
+      
+      console.log("Strike Price:", oracleDetails.strikePrice);
+      console.log("Final Price:", oracleDetails.finalPrice);
+      
+      setStrikePrice(parseFloat(ethers.utils.formatUnits(strikePriceBN, 0))); // Giả định 8 số thập phân
+      setFinalPrice(parseFloat(ethers.utils.formatUnits(finalPriceBN, 0)));   // Giả định 8 số thập phân
+    } catch (error: any) {
+      console.error("Error fetching market details:", error);
     }
-  }, [contract]);
+  }, []);
 
   const fetchContractBalance = async () => {
     try {
@@ -200,7 +213,7 @@ useEffect(() => {
             setCountdown(null);
             
             // Gọi lại fetchMarketDetails để cập nhật thông tin từ contract
-            await fetchMarketDetails(); 
+            await fetchMarketDetails(contract); 
 
             
             // Kiểm tra kết quả và hiển thị thông báo
@@ -294,7 +307,7 @@ useEffect(() => {
       setTotalDeposited(prev => prev + Number(bidAmount));
 
       // Chỉ gọi fetchMarketDetails khi cần thiết
-      fetchMarketDetails();
+      fetchMarketDetails(contract);
       await fetchContractBalance();
       setBidAmount("");
     } catch (error) {
@@ -312,7 +325,7 @@ useEffect(() => {
   useEffect(() => {
     const interval = setInterval(() => {
       if (contract && currentPhase !== Phase.Bidding) { // Ngăn không cho cập nhật trong phase Bidding
-        fetchMarketDetails();
+        fetchMarketDetails(contract);
       }
     }, 5000); // Gọi hàm mỗi 5 giây
     return () => clearInterval(interval); // Clear interval khi component bị unmount
@@ -337,7 +350,7 @@ useEffect(() => {
         setShowClaimButton(false);  // Ẩn nút claim sau khi đã nhận
         setTotalDeposited(0); 
         // Cập nhật lại bảng Long/Short
-        await fetchMarketDetails(); // Gọi lại hàm để cập nhật thông tin
+        await fetchMarketDetails(contract); // Gọi lại hàm để cập nhật thông tin
         await fetchContractBalance();
 
 
@@ -349,6 +362,7 @@ useEffect(() => {
           isClosable: true,
         });
       } catch (error) {
+        console.error("Error claiming reward:", error);
         toast({
           title: "Error claiming reward",
           description: "An error occurred. Please try again.",

@@ -5,11 +5,13 @@ import { FaEthereum, FaWallet } from 'react-icons/fa';
 import BinaryOptionMarket from '../../../out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
 import Factory from '../../../out/Factory.sol/Factory.json';  // ABI của Factory contract
 import ListAddressOwner from './ListAddressOwner'; // Import ListAddressOwner
+import { fetchMarketDetails } from './Customer'; 
+import fs from 'fs'; // Import fs để đọc file
+import { FACTORY_ADDRESS } from '../config/contracts';
 
 interface OwnerProps {
   address: string;
 }
-
 const Owner : React.FC<OwnerProps> = ({ address })=> {
   const [contractAddress, setContractAddress] = useState('');
   const [strikePrice, setStrikePrice] = useState('');
@@ -18,11 +20,23 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
   const [contractBalance, setContractBalance] = useState(''); 
   const [isWalletConnected, setIsWalletConnected] = useState(false);
   const [deployedContracts, setDeployedContracts] = useState<string[]>([]); // Add this line
-
+  const [factoryAddress, setFactoryAddress] = useState('');
   
+  
+  
+  //const [FactoryAddress, setFactoryAddress] = useState<string>('');
+  const FactoryAddress = FACTORY_ADDRESS;
+  const toast = useToast();
+//   useEffect(() => {
+//     // Đọc địa chỉ từ file JSON
+//     const data = fs.readFileSync('deployed_address.json', 'utf8');
+//     const json = JSON.parse(data);
+//     setFactoryAddress(json.FactoryAddress);
+// }, []);
 
-  const FactoryAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1";
-  const toast = useToast();  // Sử dụng useToast
+
+
+
 
   useEffect(() => {
     const provider = new ethers.providers.Web3Provider(window.ethereum);
@@ -70,11 +84,9 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
       }
   
       // Salt ngẫu nhiên
-      const randomSalt = ethers.utils.hexlify(ethers.utils.randomBytes(32));
       
       console.log("Wallet Address:", walletAddress);
       console.log("Strike Price Value:", strikePriceValue);
-      console.log("Random Salt:", randomSalt);
   
       // Triển khai hợp đồng
       const contract = await factory.deploy(walletAddress, strikePriceValue); // Triển khai hợp đồng với tham số constructor
@@ -83,7 +95,8 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
       console.log("Contract deployed at:", contract.address);
       
       setContractAddress(contract.address);
-  
+      const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, signer);
+      await factoryContract.deploy(contract.address);
       // Hiển thị thông báo thành công
       await fetchContractsByOwner(); // Gọi hàm này để lấy hợp đồng
       toast({
@@ -168,7 +181,7 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
       await tx.wait();
 
       fetchContractBalance();
-
+      await fetchMarketDetails(binaryOptionMarketContract);
       toast({
         title: "Trading started!",
         status: "success",
@@ -196,7 +209,7 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
 
       const tx = await binaryOptionMarketContract.resolveMarket();
       await tx.wait();
-
+      await fetchMarketDetails(binaryOptionMarketContract);
       toast({
         title: "Market resolved!",
         status: "success",
@@ -224,7 +237,7 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
 
       const tx = await binaryOptionMarketContract.expireMarket();
       await tx.wait();
-
+      await fetchMarketDetails(binaryOptionMarketContract);
       toast({
         title: "Market expired!",
         status: "success",
@@ -291,18 +304,37 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
       });
     }
   };
-  const fetchContractsByOwner = async () => {
-    if (!walletAddress) {
-      console.error("Wallet address not available");
-      toast({
-        title: "No Wallet Connected",
-        description: "Please connect your wallet first.",
-        status: "warning",
-        duration: 3000,
-        isClosable: true,
+
+  useEffect(() => {
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, provider);
+
+    // Lắng nghe sự kiện ContractStored để cập nhật hợp đồng khi có hợp đồng mới
+    factoryContract.on("Deployed", (owner, contractAddress, index) => {
+      console.log("New contract stored:", contractAddress);
+      fetchContractsByOwner(); // Cập nhật danh sách hợp đồng sau khi nhận sự kiện
+    });
+
+    return () => {
+      // Hủy lắng nghe sự kiện khi component bị unmount
+      factoryContract.off("Deployed", (owner, contractAddress, index) => {
+        console.log("New contract stored:", contractAddress);
+        fetchContractsByOwner(); // Cập nhật danh sách hợp đồng sau khi nhận sự kiện
       });
-      return;
-    }
+    };
+  }, [walletAddress]);
+  const fetchContractsByOwner = async () => {
+    // if (!walletAddress) {
+    //   console.error("Wallet address not available");
+    //   toast({
+    //     title: "No Wallet Connected",
+    //     description: "Please connect your wallet first.",
+    //     status: "warning",
+    //     duration: 3000,
+    //     isClosable: true,
+    //   });
+    //   return;
+    // }
     try {
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const contract = new ethers.Contract(FactoryAddress, Factory.abi, provider);
