@@ -1,10 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { ethers } from 'ethers';
-import { Box, Button, VStack, useToast, HStack, Text, Flex, Icon } from '@chakra-ui/react';
-import { FaWallet, FaEthereum } from 'react-icons/fa';
+import { Box, Button, VStack, useToast, HStack, Text, Flex, Icon, Spacer, Circle } from '@chakra-ui/react';
+import { FaWallet, FaEthereum, FaChevronLeft } from 'react-icons/fa';
 import BinaryOptionMarket from '../../../out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
 import { fetchMarketDetails } from './Customer';
 import { FACTORY_ADDRESS } from '../config/contracts';
+import { useRouter } from 'next/router';
+
+// Thêm enum Phase vào đầu file, sau các imports
+enum Phase { Trading, Bidding, Maturity, Expiry }
 
 interface OwnerDeployProps {
   address: string;
@@ -14,47 +18,35 @@ const OwnerDeploy: React.FC<OwnerDeployProps> = ({ address }) => {
   const [contractAddress, setContractAddress] = useState('');
   const [walletAddress, setWalletAddress] = useState('');
   const [contractBalance, setContractBalance] = useState('');
-  const [isWalletConnected, setIsWalletConnected] = useState(false);
+  const [currentPhase, setCurrentPhase] = useState<Phase>(Phase.Trading);
   const toast = useToast();
+  const router = useRouter();
 
+  // Thêm useEffect để lấy địa chỉ contract từ localStorage
   useEffect(() => {
-    // Lấy địa chỉ contract từ localStorage khi component mount
     const savedAddress = localStorage.getItem('selectedContractAddress');
     if (savedAddress) {
       setContractAddress(savedAddress);
     }
   }, []);
 
-  // Kết nối ví
-  const connectWallet = async () => {
-    if (typeof window.ethereum !== 'undefined') {
-      try {
-        await window.ethereum.request({ method: 'eth_requestAccounts' });
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
-        const signer = provider.getSigner();
-        const address = await signer.getAddress();
-        setWalletAddress(address);
-        setIsWalletConnected(true);
-        
-        toast({
-          title: "Wallet connected successfully!",
-          description: `Address: ${shortenAddress(address)}`,
-          status: "success",
-          duration: 3000,
-          isClosable: true,
-        });
-      } catch (error: any) {
-        console.error("Failed to connect wallet:", error);
-        toast({
-          title: "Failed to connect wallet",
-          description: error.message,
-          status: "error",
-          duration: 5000,
-          isClosable: true,
-        });
+  // Thêm useEffect để tự động kết nối khi component mount
+  useEffect(() => {
+    const autoConnect = async () => {
+      if (typeof window.ethereum !== 'undefined') {
+        try {
+          const provider = new ethers.providers.Web3Provider(window.ethereum);
+          const signer = provider.getSigner();
+          const address = await signer.getAddress();
+          setWalletAddress(address);
+        } catch (error) {
+          console.error("Auto connect failed:", error);
+          router.push('/listaddress'); // Redirect về list nếu không kết nối được
+        }
       }
-    }
-  };
+    };
+    autoConnect();
+  }, []);
 
   // Fetch contract balance
   const fetchContractBalance = async () => {
@@ -75,29 +67,49 @@ const OwnerDeploy: React.FC<OwnerDeployProps> = ({ address }) => {
     }
   };
 
-  // Start Trading Phase
-  const startTrading = async () => {
+  // Thêm hàm để fetch phase hiện tại
+  const fetchCurrentPhase = async () => {
+    try {
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const contract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, provider);
+      const phase = await contract.currentPhase();
+      setCurrentPhase(phase);
+    } catch (error) {
+      console.error("Error fetching phase:", error);
+    }
+  };
+
+  // Gọi fetchCurrentPhase khi component mount và khi contractAddress thay đổi
+  useEffect(() => {
+    if (contractAddress) {
+      fetchCurrentPhase();
+    }
+  }, [contractAddress]);
+
+  // Đổi tên và logic của hàm startTrading thành startBidding
+  const startBidding = async () => {
     try {
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
       const contract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, signer);
 
-      const tx = await contract.startTrading();
+      const tx = await contract.startBidding();
       await tx.wait();
 
+      // Cập nhật phase sau khi transaction thành công
+      await fetchCurrentPhase();
       fetchContractBalance();
-      await fetchMarketDetails(contract);
       
       toast({
-        title: "Trading started!",
+        title: "Bidding phase started!",
         status: "success",
         duration: 3000,
         isClosable: true,
       });
     } catch (error: any) {
-      console.error("Failed to start trading:", error);
+      console.error("Failed to start bidding:", error);
       toast({
-        title: "Failed to start trading",
+        title: "Failed to start bidding",
         description: error.message,
         status: "error",
         duration: 5000,
@@ -210,104 +222,146 @@ const OwnerDeploy: React.FC<OwnerDeployProps> = ({ address }) => {
   const factoryAddress = FACTORY_ADDRESS;
 
   return (
-    <Flex direction="column" alignItems="center" justifyContent="flex-start" p={6} bg="black" minH="100vh" position="relative">
-      <VStack
-        width={{ base: '95%', md: '1000px' }}  // Tăng width của container
-        spacing={6}  // Giảm spacing giữa các phần tử
-        align="stretch"
-        color="#FEDF56"
-        fontFamily="Arial, sans-serif"
-        
-      >
-        {!isWalletConnected ? (
-          <Button
-            onClick={connectWallet}
-            backgroundColor="#FEDF56"
-            color="#5D3A1A"
-            _hover={{ backgroundColor: "#D5D5D5" }}
-            padding="30px"  // Tăng padding
-            borderRadius="full"
-            fontWeight="bold"
-            fontSize="2xl"  // Tăng font size
-            w="full"
-          >
-            Connect Wallet
-          </Button>
-        ) : (
-          <VStack spacing={6} align="stretch" >  // Giảm spacing
-            {/* Top row with wallet info and balance */}
-            <HStack spacing={6} justify="space-between" width="100%" fontSize="xl">  // Tăng font size và spacing
-              <HStack>
-                <Icon as={FaWallet} w={6} h={6} />  // Tăng kích thước icon
-                <Text>{shortenAddress(walletAddress)}</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FaEthereum} w={6} h={6} />  // Tăng kích thước icon
-                <Text>{contractBalance} ETH</Text>
-              </HStack>
-              <Button 
-                onClick={withdraw}
-                size="lg"  // Tăng kích thước button
-                colorScheme="yellow" 
-                variant="outline"
-                fontSize="xl"  // Tăng font size
-              >
-                Withdraw
-              </Button>
+    <Box bg="black" minH="100vh">
+      {/* Header với Markets button */}
+      <Flex px={6} py={4} alignItems="center">
+        <Button 
+          leftIcon={<FaChevronLeft />} 
+          variant="ghost" 
+          color="#FEDF56"
+          onClick={() => router.push('/listaddress')}
+          _hover={{ bg: 'rgba(254, 223, 86, 0.1)' }}
+        >
+          Markets
+        </Button>
+        <Spacer />
+      </Flex>
+
+      <Flex direction="column" alignItems="center" p={6}>
+        <VStack width={{ base: '95%', md: '1000px' }} spacing={8} align="stretch">
+          {/* Wallet Info */}
+          <HStack spacing={6} justify="space-between" width="100%" fontSize="xl">
+            <HStack>
+              <Icon as={FaWallet} w={6} h={6} color="#FEDF56" />
+              <Text>{shortenAddress(walletAddress)}</Text>
             </HStack>
-
-            {/* Contract Address without border */}
-            <Flex justify="center" width="100%" mt={10} mt = "100px">
-              <Text fontSize="2xl">
-                Contract Address: {contractAddress}
-              </Text>
-            </Flex>
-
-            {/* Action Buttons in a row with spacing */}
-            <HStack spacing={55} justify="center" minH="10vh">  
-              <Button
-                onClick={startTrading}
-                bg="#FEDF56"
-                color="black"
-                _hover={{ bg: "#D5D5D5", transform: "scale(1.05)" }}  // Thêm hiệu ứng scale
-                width="300px"  // Tăng width
-                height="70px"  // Tăng height
-                fontSize="2xl"  // Tăng font size
-                transition="all 0.2s"
-              >
-                Start Trading
-              </Button>
-
-              <Button
-                onClick={resolveMarket}
-                bg="#FEDF56"
-                color="black"
-                _hover={{ bg: "#D5D5D5", transform: "scale(1.05)" }}
-                width="300px"
-                height="70px"
-                fontSize="2xl"
-                transition="all 0.2s"
-              >
-                Resolve Market
-              </Button>
-
-              <Button
-                onClick={expireMarket}
-                bg="#FEDF56"
-                color="black"
-                _hover={{ bg: "#D5D5D5", transform: "scale(1.05)" }}
-                width="300px"
-                height="70px"
-                fontSize="2xl"
-                transition="all 0.2s"
-              >
-                Expire Market
-              </Button>
+            <HStack>
+              <Icon as={FaEthereum} w={6} h={6} color="#FEDF56" />
+              <Text>{contractBalance} ETH</Text>
             </HStack>
-          </VStack>
-        )}
-      </VStack>
-    </Flex>
-);
+            <Button 
+              onClick={withdraw}
+              size="lg"
+              colorScheme="yellow" 
+              variant="outline"
+              fontSize="xl"
+            >
+              Withdraw
+            </Button>
+          </HStack>
+
+          {/* Contract Address - Đã sửa thành một hàng */}
+          <HStack spacing={4} justify="center">
+            <Text fontSize="2xl" color="#FEDF56">Contract Address:</Text>
+            <Text fontSize="2xl" color="#FEDF56">{contractAddress}</Text>
+          </HStack>
+
+          {/* Phase Timeline nằm ngang */}
+          <Flex justify="center" mt={4}>
+            <HStack spacing={8} position="relative">
+              {/* Line kết nối các phase */}
+              <Box
+                position="absolute"
+                left="30px"
+                right="30px"
+                height="2px"
+                bg="gray.700"
+                top="15px"
+                zIndex={0}
+              />
+
+              {/* Trading Phase */}
+              <VStack spacing={2} zIndex={1}>
+                <Circle
+                  size="30px"
+                  bg={currentPhase === Phase.Trading ? "#FEDF56" : "gray.700"}
+                  color={currentPhase === Phase.Trading ? "black" : "gray.500"}
+                  fontWeight="bold"
+                >
+                  1
+                </Circle>
+                <Text color={currentPhase === Phase.Trading ? "#FEDF56" : "gray.500"}>
+                  Trading
+                </Text>
+              </VStack>
+
+              {/* Bidding Phase */}
+              <VStack spacing={2} zIndex={1}>
+                <Circle
+                  size="30px"
+                  bg={currentPhase === Phase.Bidding ? "#FEDF56" : "gray.700"}
+                  color={currentPhase === Phase.Bidding ? "black" : "gray.500"}
+                  fontWeight="bold"
+                >
+                  2
+                </Circle>
+                <Text color={currentPhase === Phase.Bidding ? "#FEDF56" : "gray.500"}>
+                  Bidding
+                </Text>
+              </VStack>
+
+              {/* Maturity Phase */}
+              <VStack spacing={2} zIndex={1}>
+                <Circle
+                  size="30px"
+                  bg={currentPhase === Phase.Maturity ? "#FEDF56" : "gray.700"}
+                  color={currentPhase === Phase.Maturity ? "black" : "gray.500"}
+                  fontWeight="bold"
+                >
+                  3
+                </Circle>
+                <Text color={currentPhase === Phase.Maturity ? "#FEDF56" : "gray.500"}>
+                  Maturity
+                </Text>
+              </VStack>
+
+              {/* Expiry Phase */}
+              <VStack spacing={2} zIndex={1}>
+                <Circle
+                  size="30px"
+                  bg={currentPhase === Phase.Expiry ? "#FEDF56" : "gray.700"}
+                  color={currentPhase === Phase.Expiry ? "black" : "gray.500"}
+                  fontWeight="bold"
+                >
+                  4
+                </Circle>
+                <Text color={currentPhase === Phase.Expiry ? "#FEDF56" : "gray.500"}>
+                  Expiry
+                </Text>
+              </VStack>
+            </HStack>
+          </Flex>
+
+          {/* Start Bidding Button */}
+          <Flex justify="center" mt={6}>
+            <Button
+              onClick={startBidding}
+              bg="#FEDF56"
+              color="black"
+              _hover={{ bg: "#D5D5D5", transform: "scale(1.05)" }}
+              width="300px"
+              height="70px"
+              fontSize="2xl"
+              transition="all 0.2s"
+              isDisabled={currentPhase !== Phase.Trading}
+            >
+              Start Bidding
+            </Button>
+          </Flex>
+        </VStack>
+      </Flex>
+    </Box>
+  );
 };
+
 export default OwnerDeploy;

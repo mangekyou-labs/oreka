@@ -6,7 +6,6 @@ contract Factory {
 
     // Mapping để lưu trữ địa chỉ hợp đồng theo địa chỉ owner
     mapping(address => address[]) public ownerContracts;
-
     
     function deploy(address contractAddress) public {
         require(contractAddress != address(0), "Invalid contract address");
@@ -18,7 +17,6 @@ contract Factory {
         emit Deployed(msg.sender, contractAddress, ownerContracts[msg.sender].length - 1);
     }
 
-    // Hàm để lấy danh sách hợp đồng của một owner
     function getContractsByOwner(address owner) public view returns (address[] memory) {
         return ownerContracts[owner];
     }

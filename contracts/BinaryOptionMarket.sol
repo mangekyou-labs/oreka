@@ -6,7 +6,7 @@ import "./OracleConsumer.sol";
 
 contract BinaryOptionMarket is Ownable {
     enum Side { Long, Short }
-    enum Phase { Bidding, Trading, Maturity, Expiry }
+    enum Phase { Trading, Bidding, Maturity, Expiry }
 
     struct OracleDetails {
         uint strikePrice;
@@ -24,6 +24,7 @@ contract BinaryOptionMarket is Ownable {
         uint refundFee;
     }
 
+    uint256 public strikePrice;
     OracleDetails public oracleDetails;
     OracleConsumer internal priceFeed;
     Position public positions;
@@ -41,24 +42,23 @@ contract BinaryOptionMarket is Ownable {
     event RewardClaimed(address indexed account, uint value);
     event Withdrawal(address indexed user, uint amount);
 
-    constructor(
-        address _owner,
-        //address _coprocessor,
-        uint _strikePrice
-    ) Ownable(_owner) {
-        //priceFeed = OracleConsumer(_coprocessor);
-        oracleDetails = OracleDetails(_strikePrice, "0");
-        currentPhase = Phase.Bidding;
-        transferOwnership(msg.sender); // Initialize the Ownable contract with the contract creator
+    // Thêm biến thời gian
+    uint public biddingStartTime;
+    uint public constant RESOLVE_DELAY = 1 minutes;  // Thời gian chờ trước khi resolve
+    uint public constant EXPIRE_DELAY = 30 seconds;  // Thời gian chờ trước khi expire
+    uint public resolveTime;
+
+    constructor(uint256 _strikePrice, address _owner) Ownable(_owner) {
+        strikePrice = _strikePrice;
+        currentPhase = Phase.Trading;
     }
 
-     function setStrikePrice(uint _strikePrice) external onlyOwner {
+    function setStrikePrice(uint _strikePrice) external onlyOwner {
         oracleDetails.strikePrice = _strikePrice;
     }
 
-
     function bid(Side side) public payable {
-        require(currentPhase == Phase.Trading, "Not in Trading phase");
+        require(currentPhase == Phase.Bidding, "Not in Bidding phase");
         require(msg.value > 0, "Value must be greater than zero");
 
         if (side == Side.Long) {
@@ -74,27 +74,22 @@ contract BinaryOptionMarket is Ownable {
     }
 
     event MarketOutcome(Side winningSide, address indexed user, bool isWinner);
-    function resolveMarket() external onlyOwner {
-        require(currentPhase == Phase.Trading, "Market not in trading phase");
+    function resolveMarket() external {
+        require(currentPhase == Phase.Bidding, "Market not in Bidding phase");
+        require(block.timestamp >= biddingStartTime + RESOLVE_DELAY, "Too early to resolve");
+        
         currentPhase = Phase.Maturity;
+        resolveTime = block.timestamp;
 
-        string memory price = "10"; // Đây là giá giả định, sẽ lấy từ Oracle thực tế
-        uint updatedAt = 1;
+        string memory price = "10"; // Giá từ Oracle
         oracleDetails.finalPrice = price;
         resolved = true;
-        emit MarketResolved(price, updatedAt);
 
-        // Thêm thông báo cho bên thắng
         uint finalPrice = parsePrice(oracleDetails.finalPrice);
-
-        Side winningSide;
-        if (finalPrice >= oracleDetails.strikePrice) {
-            winningSide = Side.Long;
-        } else {
-            winningSide = Side.Short;
-        }
-
-        emit MarketOutcome(winningSide, address(0), true); // Thông báo kết quả thị trường
+        Side winningSide = finalPrice >= oracleDetails.strikePrice ? Side.Long : Side.Short;
+        
+        emit MarketResolved(price, block.timestamp);
+        emit MarketOutcome(winningSide, address(0), true);
     }
 
     function claimReward() external {
@@ -144,29 +139,24 @@ contract BinaryOptionMarket is Ownable {
         emit RewardClaimed(msg.sender, finalReward);
     }
 
+    function withdraw() public onlyOwner {
+        uint amount = address(this).balance;
+        require(amount > 0, "No balance to withdraw.");
 
-        function withdraw() public onlyOwner {
-            uint amount = address(this).balance;
-            require(amount > 0, "No balance to withdraw.");
+        payable(msg.sender).transfer(amount);
 
-            payable(msg.sender).transfer(amount);
-
-            emit Withdrawal(msg.sender, amount);
-        }
-
-    // function oraclePriceAndTimestamp() public view returns (string memory price, uint updatedAt) {
-    //     (, string memory answer, uint timeStamp, ) = priceFeed.latestRoundData();
-    //     price = answer;
-    //     updatedAt = timeStamp;
-    // }
-
-    function startTrading() external onlyOwner {
-        require(currentPhase == Phase.Bidding, "Market not in bidding phase");
-        currentPhase = Phase.Trading;
+        emit Withdrawal(msg.sender, amount);
     }
 
-    function expireMarket() external onlyOwner {
+    function startBidding() external onlyOwner {
+        require(currentPhase == Phase.Trading, "Market not in Trading phase");
+        currentPhase = Phase.Bidding;
+        biddingStartTime = block.timestamp;
+    }
+
+    function expireMarket() external {
         require(currentPhase == Phase.Maturity, "Market not in maturity phase");
+        require(block.timestamp >= resolveTime + EXPIRE_DELAY, "Too early to expire");
         currentPhase = Phase.Expiry;
     }
 

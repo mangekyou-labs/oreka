@@ -7,5 +7,10 @@
   },
   "scripts": {
     "deploy:factory": "forge script script/DeployFactory.s.sol --rpc-url http://localhost:8545 --broadcast"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4"
   }
 }

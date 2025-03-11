@@ -1,38 +1,58 @@
 import React, { useEffect, useState } from 'react';
 import { ethers } from 'ethers';
-import { Box, Button, Input, VStack, useToast, HStack, Icon, SimpleGrid, Text } from '@chakra-ui/react';
+import { Box, Button, Input, VStack, useToast, HStack, Icon, SimpleGrid, Text, Select } from '@chakra-ui/react';
 import { FaEthereum, FaWallet } from 'react-icons/fa';
 import BinaryOptionMarket from '../../../out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
 import Factory from '../../../out/Factory.sol/Factory.json';  // ABI của Factory contract
 import ListAddressOwner from './ListAddressOwner'; // Import ListAddressOwner
-import { fetchMarketDetails } from './Customer'; 
+import { fetchMarketDetails } from './Customer';
 import fs from 'fs'; // Import fs để đọc file
 import { FACTORY_ADDRESS } from '../config/contracts';
 
 interface OwnerProps {
   address: string;
 }
-const Owner : React.FC<OwnerProps> = ({ address })=> {
+
+// Thêm interface cho Coin
+interface Coin {
+  value: string;
+  label: string;
+}
+
+const Owner: React.FC<OwnerProps> = ({ address }) => {
   const [contractAddress, setContractAddress] = useState('');
   const [strikePrice, setStrikePrice] = useState('');
   const [walletAddress, setWalletAddress] = useState('');
   const [balance, setBalance] = useState('');
-  const [contractBalance, setContractBalance] = useState(''); 
+  const [contractBalance, setContractBalance] = useState('');
   const [isWalletConnected, setIsWalletConnected] = useState(false);
   const [deployedContracts, setDeployedContracts] = useState<string[]>([]); // Add this line
   const [factoryAddress, setFactoryAddress] = useState('');
+  // Thêm state cho selectedCoin
+  const [selectedCoin, setSelectedCoin] = useState<Coin | null>(null);
   
-  
-  
+  // Thêm danh sách coins có sẵn
+  const availableCoins: Coin[] = [
+    { value: "BTCUSD", label: "BTC/USD" },
+    { value: "ETHUSD", label: "ETH/USD" },
+    { value: "ICPUSD", label: "ICP/USD" }
+  ];
+
+  // Thêm handler cho việc chọn coin
+  const handleCoinSelect = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const selected = availableCoins.find(coin => coin.value === event.target.value);
+    setSelectedCoin(selected || null);
+  };
+
   //const [FactoryAddress, setFactoryAddress] = useState<string>('');
   const FactoryAddress = FACTORY_ADDRESS;
   const toast = useToast();
-//   useEffect(() => {
-//     // Đọc địa chỉ từ file JSON
-//     const data = fs.readFileSync('deployed_address.json', 'utf8');
-//     const json = JSON.parse(data);
-//     setFactoryAddress(json.FactoryAddress);
-// }, []);
+  //   useEffect(() => {
+  //     // Đọc địa chỉ từ file JSON
+  //     const data = fs.readFileSync('deployed_address.json', 'utf8');
+  //     const json = JSON.parse(data);
+  //     setFactoryAddress(json.FactoryAddress);
+  // }, []);
 
 
 
@@ -48,7 +68,7 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
       console.log("Owner:", owner);
       console.log("New contract deployed:", newContractAddress);
       console.log("Index:", index);
-      
+
       setContractAddress(newContractAddress);
       setDeployedContracts(prev => [...prev, newContractAddress]); // Cập nhật danh sách contract
 
@@ -68,58 +88,7 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
     };
   }, []);
 
-  // Hàm triển khai hợp đồng mới
-  const deployContract = async () => {
-    try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
-      
-      // Tạo đối tượng ContractFactory từ bytecode và ABI của hợp đồng
-      const factory = new ethers.ContractFactory(BinaryOptionMarket.abi, BinaryOptionMarket.bytecode, signer);
-      
-      // Chuyển đổi strikePrice thành số
-      const strikePriceValue = parseFloat(strikePrice);
-      if (isNaN(strikePriceValue)) {
-        throw new Error("Invalid strike price");
-      }
-  
-      // Salt ngẫu nhiên
-      
-      console.log("Wallet Address:", walletAddress);
-      console.log("Strike Price Value:", strikePriceValue);
-  
-      // Triển khai hợp đồng
-      const contract = await factory.deploy(walletAddress, strikePriceValue); // Triển khai hợp đồng với tham số constructor
-      await contract.deployed();
-      
-      console.log("Contract deployed at:", contract.address);
-      
-      setContractAddress(contract.address);
-      const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, signer);
-      await factoryContract.deploy(contract.address);
-      // Hiển thị thông báo thành công
-      await fetchContractsByOwner(); // Gọi hàm này để lấy hợp đồng
-      toast({
-        title: "Contract deployed successfully!",
-        description: `Contract deployed at: ${contract.address}`,
-        status: "success",
-        duration: 5000,
-        isClosable: true,
-      });
-    } catch (error: any) {
-      console.error("Failed to deploy contract:", error);
-      toast({
-        title: "Failed to deploy contract",
-        description: error.message || "An unexpected error occurred.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
-    }
-  };
-  
-
-  // Kết nối Metamask
+  // Update connectWallet function
   const connectWallet = async () => {
     if (typeof window.ethereum !== 'undefined') {
       try {
@@ -132,7 +101,7 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
         setWalletAddress(address);
         setBalance(balanceEth.toString());
         setIsWalletConnected(true);
-        
+
         toast({
           title: "Wallet connected successfully!",
           description: `Address: ${shortenAddress(address)}`,
@@ -166,95 +135,59 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
-  // Triển khai hợp đồng với CREATE2
-    // Triển khai hợp đồng với CREATE2
-// Triển khai hợp đồng với CREATE2
-  
-  // Chuyển đổi trạng thái từ Bidding sang Trading
-  const startTrading = async () => {
+  // Update the deployContract function
+  const deployContract = async () => {
     try {
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
-      const binaryOptionMarketContract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, signer);
+      
+      // Convert strikePrice to BigNumber
+      if (!strikePrice || isNaN(parseFloat(strikePrice))) {
+        throw new Error("Invalid strike price");
+      }
+      const strikePriceValue = ethers.utils.parseUnits(strikePrice, "0");
 
-      const tx = await binaryOptionMarketContract.startTrading();
-      await tx.wait();
+      // Deploy BinaryOptionMarket contract
+      const factory = new ethers.ContractFactory(
+        BinaryOptionMarket.abi,
+        BinaryOptionMarket.bytecode,
+        signer
+      );
 
-      fetchContractBalance();
-      await fetchMarketDetails(binaryOptionMarketContract);
+      const contract = await factory.deploy(
+        strikePriceValue,
+        await signer.getAddress()
+      );
+      await contract.deployed();
+
+      // Register with Factory
+      const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, signer);
+      await factoryContract.deploy(contract.address);
+
+      setContractAddress(contract.address);
+      await fetchContractsByOwner();
+
       toast({
-        title: "Trading started!",
+        title: "Success",
+        description: `Contract deployed at: ${contract.address}`,
         status: "success",
-        duration: 3000,
-        isClosable: true,
+        duration: 5000,
+        isClosable: true
       });
-    } catch (error: any) {
-      console.error("Failed to start trading:", error);
+
+    } catch (error) {
+      console.error("Deploy error:", error);
       toast({
-        title: "Failed to start trading",
-        description: error.message || "An unexpected error occurred.",
+        title: "Error",
+        description: error.message,
         status: "error",
         duration: 5000,
-        isClosable: true,
+        isClosable: true
       });
     }
   };
 
-  // Chuyển đổi trạng thái từ Trading sang Maturity
-  const resolveMarket = async () => {
-    try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
-      const binaryOptionMarketContract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, signer);
 
-      const tx = await binaryOptionMarketContract.resolveMarket();
-      await tx.wait();
-      await fetchMarketDetails(binaryOptionMarketContract);
-      toast({
-        title: "Market resolved!",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
-    } catch (error: any) {
-      console.error("Failed to resolve market:", error);
-      toast({
-        title: "Failed to resolve market",
-        description: error.message || "An unexpected error occurred.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
-    }
-  };
-
-  // Chuyển đổi trạng thái từ Maturity sang Expiry
-  const expireMarket = async () => {
-    try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
-      const binaryOptionMarketContract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, signer);
-
-      const tx = await binaryOptionMarketContract.expireMarket();
-      await tx.wait();
-      await fetchMarketDetails(binaryOptionMarketContract);
-      toast({
-        title: "Market expired!",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
-    } catch (error: any) {
-      console.error("Failed to expire market:", error);
-      toast({
-        title: "Failed to expire market",
-        description: error.message || "An unexpected error occurred.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
-    }
-  };
 
   // Cập nhật giá strike
   const updateStrikePrice = async () => {
@@ -284,7 +217,7 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
       });
     }
   };
-  
+
   const fetchContractBalance = async () => {
     try {
       console.log("Fetching contract balance..."); // Log trước khi lấy balance
@@ -324,37 +257,43 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
     };
   }, [walletAddress]);
   const fetchContractsByOwner = async () => {
-    // if (!walletAddress) {
-    //   console.error("Wallet address not available");
-    //   toast({
-    //     title: "No Wallet Connected",
-    //     description: "Please connect your wallet first.",
-    //     status: "warning",
-    //     duration: 3000,
-    //     isClosable: true,
-    //   });
-    //   return;
-    // }
     try {
+      // Check if wallet is connected
+      if (!walletAddress) {
+        console.log("No wallet address available");
+        return;
+      }
+
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const contract = new ethers.Contract(FactoryAddress, Factory.abi, provider);
+
+      // Log để debug
+      console.log("Fetching contracts for address:", walletAddress);
+      console.log("Using Factory at:", FactoryAddress);
+
+      // Thêm check address hợp lệ
+      if (!ethers.utils.isAddress(walletAddress)) {
+        throw new Error("Invalid wallet address");
+      }
+
       const contracts = await contract.getContractsByOwner(walletAddress);
       console.log("Contracts fetched:", contracts);
       setDeployedContracts(contracts);
+
     } catch (error: any) {
-      console.error("Failed to fetch contracts by owner:", error);
+      console.error("Failed to fetch contracts:", error);
       toast({
         title: "Error fetching contracts",
-        description: error.message || "An unexpected error occurred.",
+        description: "Please make sure your wallet is connected",
         status: "error",
         duration: 5000,
         isClosable: true,
       });
     }
   };
-  
 
-  
+
+
 
   const withdraw = async () => {
     try {
@@ -390,27 +329,25 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
     }
   }, [contractAddress]);
   useEffect(() => {
-    if (contractAddress) {
-      fetchContractBalance();
-      console.log("Fetching contracts for owner:", walletAddress); // Log địa chỉ ví
-      fetchContractsByOwner(); // Gọi hàm này để lấy hợp đồng
+    if (walletAddress) {
+      fetchContractsByOwner();
     }
-  }, [contractAddress, walletAddress]); // Thêm walletAddress vào dependency array nếu cần
+  }, [walletAddress]);
 
 
   return (
     <VStack color="#FEDF56" fontFamily="Arial, sans-serif" >
       {!isWalletConnected ? (
-        <Button 
-          onClick={connectWallet} 
-          colorScheme="teal" 
+        <Button
+          onClick={connectWallet}
+          colorScheme="teal"
           color="yellow"
           fontSize="4xl"
           fontWeight="bold"
           w="500px"
           p={8}
           _hover={{ bg: "teal.500", transform: "scale(1.05)" }}>
-            Connect Wallet
+          Connect Wallet
         </Button>
       ) : (
         <>
@@ -424,21 +361,36 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
               <Text>{parseFloat(balance).toFixed(4)} ETH</Text>
             </HStack>
             <HStack>
-              <Button 
-                size="lg" 
-                w="150px" 
-                p={4} 
+              <Button
+                size="lg"
+                w="150px"
+                p={4}
                 colorScheme="orange"
                 _hover={{ bg: "orange.600", transform: "scale(1.05)" }}
                 onClick={withdraw}
                 isDisabled={contractBalance === '0.0000' || contractAddress === ''}>
-                  Withdraw
+                Withdraw
               </Button>
             </HStack>
           </HStack>
 
           <SimpleGrid columns={1}>
             <HStack spacing={6} my={8}>
+              <Select
+                placeholder="Select Trading Pair"
+                value={selectedCoin?.value || ''}
+                onChange={handleCoinSelect}
+                width={200}
+                bg="gray.800"
+                color="white"
+              >
+                {availableCoins.map((coin) => (
+                  <option key={coin.value} value={coin.value}>
+                    {coin.label}
+                  </option>
+                ))}
+              </Select>
+
               <Input
                 placeholder="Strike Price"
                 value={strikePrice}
@@ -449,14 +401,14 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
                 width={350}
                 bg="gray.800"
                 color="white"
-                _placeholder={{ color: "gray.500" }}
               />
-              <Button 
-                onClick={deployContract} 
-                colorScheme="pink" 
-                size="lg" 
-                _hover={{ bg: "pink.600", transform: "scale(1.05)" }}>
-                  Deploy Contract
+
+              <Button
+                onClick={deployContract}
+                colorScheme="pink"
+                size="lg"
+              >
+                Deploy Contract
               </Button>
             </HStack>
           </SimpleGrid>
@@ -468,43 +420,12 @@ const Owner : React.FC<OwnerProps> = ({ address })=> {
                   <Text fontSize="xl" color="white">Contract Address:</Text>
                   <Text fontSize="xl" color="white">{contractAddress}</Text>
                 </HStack>
-                <HStack>
-                  <Text fontSize="xl" color="white">Balance :</Text>
-                  <Text fontSize="xl" color="white">{contractBalance} ETH</Text>
-                </HStack>
+
               </VStack>
             </SimpleGrid>
           )}
 
-          <SimpleGrid columns={3} spacing={20} my={8}>
-            <Button 
-              size="lg" 
-              w="200px" 
-              p={6} 
-              colorScheme="purple"
-              _hover={{ bg: "purple.600", transform: "scale(1.05)" }}
-              onClick={startTrading}>
-                Start Trading
-            </Button>
-            <Button 
-              size="lg" 
-              w="200px" 
-              p={6} 
-              colorScheme="blue"
-              _hover={{ bg: "blue.600", transform: "scale(1.05)" }}
-              onClick={resolveMarket}>
-                Resolve
-            </Button>
-            <Button 
-              size="lg" 
-              w="200px" 
-              p={6} 
-              colorScheme="red"
-              _hover={{ bg: "red.600", transform: "scale(1.05)" }}
-              onClick={expireMarket}>
-                Expire
-            </Button>
-          </SimpleGrid>
+
         </>
       )}
     </VStack>

@@ -2,21 +2,30 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useCallback } from 'react'; // Thêm import useCallback
 import { 
   Flex, Box, Text, Button, VStack, useToast, Input, 
-  Select, HStack, Icon, ScaleFade, Table, Thead, Tbody, Tr, Th, Td
+  Select, HStack, Icon, ScaleFade, Table, Thead, Tbody,Tab, Tr, Th, Td, Spacer, Tabs, TabList, TabPanels, TabPanel, Circle
 } from '@chakra-ui/react';
-import { FaEthereum, FaWallet, FaTrophy } from 'react-icons/fa';
+import { FaEthereum, FaWallet, FaTrophy, FaChevronLeft, FaShare } from 'react-icons/fa';
 import { ethers } from 'ethers';
 import { BigNumber } from 'ethers';
 import { motion, useAnimation } from 'framer-motion';
 import Owner from './Owner';
 import BinaryOptionMarket from '../../../out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
+import { PriceService, PriceData } from '../services/PriceService';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { SiBitcoinsv } from 'react-icons/si';
+import { useRouter } from 'next/router'; // Thêm import này
 
 enum Side { Long, Short }
-enum Phase { Bidding, Trading, Maturity, Expiry }
+enum Phase {Trading,Bidding, Maturity, Expiry }
 
 interface Coin {
   value: string;
   label: string;
+}
+
+// Thêm interface cho symbol mapping
+interface CoinSymbol {
+  [key: string]: string;
 }
 
 export const fetchMarketDetails = async (contract: ethers.Contract) => {
@@ -30,6 +39,24 @@ export const fetchMarketDetails = async (contract: ethers.Contract) => {
   }
 };
 
+// Di chuyển providerConfig ra ngoài component và thêm các cấu hình cần thiết
+const providerConfig = {
+  chainId: 31337,
+  name: 'local',
+  ensAddress: null,
+  networkId: 31337,
+  polling: false,
+  staticNetwork: true
+};
+
+// Tạo hàm helper để lấy provider và signer
+const getProviderAndSigner = async () => {
+  const provider = new ethers.providers.Web3Provider(window.ethereum, providerConfig);
+  await provider.send("eth_requestAccounts", []); // Yêu cầu kết nối ví
+  const signer = provider.getSigner();
+  return { provider, signer };
+};
+
 function Customer() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [selectedSide, setSelectedSide] = useState<Side | null>(null);
@@ -39,28 +66,39 @@ function Customer() {
   const [accumulatedWinnings, setAccumulatedWinnings] = useState(0);
   const [bidAmount, setBidAmount] = useState("");
   const [currentPhase, setCurrentPhase] = useState<Phase>(Phase.Bidding);
-  //const [positions, setPositions] = useState({ long: 0, short: 0 });
   const [totalDeposited, setTotalDeposited] = useState(0);
-  const [strikePrice, setStrikePrice] = useState<number>(0);
-  const [finalPrice, setFinalPrice] = useState<number>(0);
+  const [strikePrice, setStrikePrice] = useState<string>('');
+  const [finalPrice, setFinalPrice] = useState<string>('');
   const [selectedCoin, setSelectedCoin] = useState<Coin | null>(null);
   const [showClaimButton, setShowClaimButton] = useState(false);
-  const [showResult, setShowResult] = useState(false);
-  const [resultMessage, setResultMessage] = useState("");
-  const [countdown, setCountdown] = useState<number | null>(null);
   const [reward, setReward] = useState(0); // Số phần thưởng khi người chơi thắng
   const [contract, setContract] = useState<ethers.Contract | null>(null);
   const [positions, setPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
   const [contractAddress, setContractAddress] = useState('');
+  const [currentPrice, setCurrentPrice] = useState<number>(0);
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [canResolve, setCanResolve] = useState(false);
+  const [canExpire, setCanExpire] = useState(false);
+  const [marketResult, setMarketResult] = useState<string>('');
+  const [userPosition, setUserPosition] = useState<Side | null>(null);
 
+  // Thêm mapping từ contract address sang symbol Binance
+  const coinSymbols: CoinSymbol = {
+    "0x5fbdb2315678afecb367f032d93f642f64180aa3": "ICPUSDT", // ICP/USD
+    "0x6fbdb2315678afecb367f032d93f642f64180aa3": "ETHUSDT", // ETH/USD 
+    "0x7fbdb2315678afecb367f032d93f642f64180aa3": "BTCUSDT"  // BTC/USD
+  };
+
+  // Sửa lại availableCoins để thêm thông tin symbol
   const [availableCoins] = useState<Coin[]>([
-    { value: "0x5fbdb2315678afecb367f032d93f642f64180aa3", label: "WIF/USD" },
+    { value: "0x5fbdb2315678afecb367f032d93f642f64180aa3", label: "ICP/USD" },
     { value: "0x6fbdb2315678afecb367f032d93f642f64180aa3", label: "ETH/USD" },
     { value: "0x7fbdb2315678afecb367f032d93f642f64180aa3", label: "BTC/USD" }
   ]);
 
   const toast = useToast();
   const priceControls = useAnimation();
+  const router = useRouter(); // Thêm hook useRouter
   //const contractAddress = "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e";  // Địa chỉ contract của bạn
   useEffect(() => {
     // Đọc địa chỉ từ localStorage khi component mount
@@ -78,21 +116,32 @@ function Customer() {
   }, []);
 
   useEffect(() => {
-    if (isLoggedIn) {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
-      const newContract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, signer);
-      setContract(newContract);
-    }
-  }, [isLoggedIn]);
+    const initContract = async () => {
+      if (isLoggedIn && contractAddress) {
+        try {
+          const { signer } = await getProviderAndSigner();
+          const newContract = new ethers.Contract(
+            contractAddress,
+            BinaryOptionMarket.abi,
+            signer
+          );
+          setContract(newContract);
+          await fetchMarketDetails();
+        } catch (error) {
+          console.error("Error initializing contract:", error);
+        }
+      }
+    };
+    initContract();
+  }, [isLoggedIn, contractAddress]);
 
   useEffect(() => {
     const interval = setInterval(() => {
       if (contract) {
-        fetchMarketDetails(contract);
+        fetchMarketDetails();
       }
-    }, 5000); // Gọi hàm mỗi 5 giây
-    return () => clearInterval(interval); // Clear interval khi component bị unmount
+    }, 5000);
+    return () => clearInterval(interval);
   }, [contract]);
 
   useEffect(() => {
@@ -101,80 +150,73 @@ function Customer() {
     }
 }, [contractAddress]);
 
-useEffect(() => {
-  const fetchBalance = async () => {
-    if (walletAddress) {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
+const fetchBalance = async () => {
+  if (walletAddress) {
+    try {
+      const provider = new ethers.providers.Web3Provider(window.ethereum, providerConfig);
       const balanceWei = await provider.getBalance(walletAddress);
-      const balanceEth = parseFloat(ethers.utils.formatEther(balanceWei));
-      setBalance(balanceEth);
+      setBalance(parseFloat(ethers.utils.formatEther(balanceWei)));
+    } catch (error) {
+      console.error("Error fetching balance:", error);
     }
-  };
+  }
+};
 
+useEffect(() => {
   fetchBalance();
-}, [walletAddress, contract]); 
-  
-  
+}, [walletAddress, contract]);
 
-  // Kết nối ví MetaMask
+  // Sửa lại connectWallet
   const connectWallet = async () => {
     if (typeof window.ethereum !== 'undefined') {
       try {
-        await window.ethereum.request({ method: 'eth_requestAccounts' });
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
-        const signer = provider.getSigner();
+        const { provider, signer } = await getProviderAndSigner();
         const address = await signer.getAddress();
         const balanceWei = await provider.getBalance(address);
-        const balanceEth = parseFloat(ethers.utils.formatEther(balanceWei));
         setWalletAddress(address);
-        setBalance(balanceEth);
+        setBalance(parseFloat(ethers.utils.formatEther(balanceWei)));
         setIsLoggedIn(true);
-        toast({
-          title: "Wallet connected successfully!",
-          description: `Address: ${abbreviateAddress(address)}`,
-          status: "success",
-          duration: 3000,
-          isClosable: true,
-        });
-      } catch (error: any) {
+      } catch (error) {
         console.error("Failed to connect wallet:", error);
-        toast({
-          title: "Failed to connect wallet",
-          description: error.message || "Please make sure MetaMask is installed and unlocked.",
-          status: "error",
-          duration: 5000,
-          isClosable: true,
-        });
       }
-    } else {
-      toast({
-        title: "MetaMask not detected",
-        description: "Please install MetaMask to use this feature.",
-        status: "warning",
-        duration: 5000,
-        isClosable: true,
-      });
     }
   };
 
   // Lấy trạng thái từ smart contract
-  const fetchMarketDetails = useCallback(async (contract: ethers.Contract) => {
+  const fetchMarketDetails = async () => {
+    if (!contract) return;
     try {
       const phase = await contract.currentPhase();
-      setCurrentPhase(phase);
       const oracleDetails = await contract.oracleDetails();
-      const strikePriceBN = BigNumber.from(oracleDetails.strikePrice);
-      const finalPriceBN = BigNumber.from(oracleDetails.finalPrice);
       
-      console.log("Strike Price:", oracleDetails.strikePrice);
-      console.log("Final Price:", oracleDetails.finalPrice);
+      setCurrentPhase(phase);
+      setStrikePrice(Number(ethers.utils.formatUnits(oracleDetails.strikePrice, 0)).toString());
       
-      setStrikePrice(parseFloat(ethers.utils.formatUnits(strikePriceBN, 0))); // Giả định 8 số thập phân
-      setFinalPrice(parseFloat(ethers.utils.formatUnits(finalPriceBN, 0)));   // Giả định 8 số thập phân
-    } catch (error: any) {
+      // Lấy finalPrice nếu đã vào phase Maturity hoặc Expiry
+      if (phase === Phase.Maturity || phase === Phase.Expiry) {
+        setFinalPrice(Number(ethers.utils.formatUnits(oracleDetails.finalPrice, 0)).toString());
+      }
+
+      const positions = await contract.positions();
+      
+      const longPos = parseFloat(ethers.utils.formatEther(positions.long));
+      const shortPos = parseFloat(ethers.utils.formatEther(positions.short));
+      
+      setPositions({ long: longPos, short: shortPos });
+      setTotalDeposited(longPos + shortPos);
+
+      // Lưu positions vào localStorage với contract address
+      const positionsData = {
+        address: contractAddress,
+        longAmount: longPos.toFixed(4),
+        shortAmount: shortPos.toFixed(4)
+      };
+      localStorage.setItem(`positions_${contractAddress}`, JSON.stringify(positionsData));
+
+    } catch (error) {
       console.error("Error fetching market details:", error);
     }
-  }, []);
+  };
 
   const fetchContractBalance = async () => {
     try {
@@ -187,137 +229,150 @@ useEffect(() => {
     }
 };
 
-  // Cập nhật trạng thái và thực hiện đếm ngược
-  useEffect(() => {
-    if (currentPhase === Phase.Maturity) {
-        setCountdown(5);
-        const countdownInterval = setInterval(() => {
-            setCountdown(prev => {
-                if (prev !== null && prev > 0) {
-                    return prev - 1;
-                } else {
-                    clearInterval(countdownInterval);
-                    setCountdown(null); // Dừng đếm ngược
+  // Thêm hàm kiểm tra kết quả market
+  const checkMarketResult = async () => {
+    if (!contract) return;
+    
+    try {
+      const oracleDetails = await contract.oracleDetails();
+      const finalPrice = parseFloat(oracleDetails.finalPrice);
+      const strikePrice = parseFloat(oracleDetails.strikePrice);
 
-                    // Chuyển sang giai đoạn Expiry sau khi countdown kết thúc
-                    setCurrentPhase(Phase.Expiry);
-                    return null;  
-                }
-            });
-        }, 1000);
-
-        // Gọi lại fetchMarketDetails sau khi đếm ngược hoàn tất
-        
-          setTimeout(async () => {
-            clearInterval(countdownInterval);
-            setCountdown(null);
-            
-            // Gọi lại fetchMarketDetails để cập nhật thông tin từ contract
-            await fetchMarketDetails(contract); 
-
-            
-            // Kiểm tra kết quả và hiển thị thông báo
-            if (contract) {
-                const oracleDetails = await contract.oracleDetails(); // Gọi hàm oracleDetails
-                const finalPrice = oracleDetails.finalPrice; // Lấy giá trị finalPrice
-                const strikePrice = oracleDetails.strikePrice; // Lấy giá trị strikePrice
-
-                // Chuyển đổi BigNumber thành số
-                //const finalPriceNumber = finalPrice instanceof BigNumber ? finalPrice.toNumber() : 0;
-                const strikePriceNumber = strikePrice instanceof BigNumber ? strikePrice.toNumber() : 0;
-
-                console.log("Final Price:", finalPrice);
-                console.log("Strike Price:", strikePriceNumber);
-                console.log("Selected Side:", selectedSide);
-
-                // Logic so sánh
-                if (selectedSide === Side.Long && finalPrice >= strikePriceNumber) {
-                    setResultMessage("YOU WIN");
-                } else if (selectedSide === Side.Short && finalPrice <= strikePriceNumber) {
-                    setResultMessage("YOU WIN");
-                } else {
-                    setResultMessage("YOU LOSE");
-                }
-                setShowResult(true);
-                // Ẩn thông báo sau 2 giây
-                setTimeout(() => {
-                    setShowResult(false);
-                }, 2000);
-            }
-        }, 5000);
+      if (finalPrice >= strikePrice) {
+        setMarketResult('LONG IS WIN');
+      } else {
+        setMarketResult('SHORT IS WIN');
+      }
+    } catch (error) {
+      console.error("Error checking market result:", error);
     }
-}, [currentPhase]);
-  
-  // Hàm chọn đồng tiền ảo
+  };
+
+  // Thêm useEffect để kiểm tra kết quả khi phase thay đổi
+  useEffect(() => {
+    if (currentPhase === Phase.Maturity || currentPhase === Phase.Expiry) {
+      checkMarketResult();
+    } else {
+      setMarketResult('');
+    }
+  }, [currentPhase, contract]);
+
+  // Thêm useEffect để kiểm tra thời gian
+  useEffect(() => {
+    const checkTiming = async () => {
+      if (!contract) return;
+      
+      try {
+        const biddingStartTime = await contract.biddingStartTime();
+        const resolveTime = await contract.resolveTime();
+        const resolveDelay = await contract.RESOLVE_DELAY();
+        const expireDelay = await contract.EXPIRE_DELAY();
+        
+        const now = Math.floor(Date.now() / 1000);
+        setCanResolve(now >= biddingStartTime.toNumber() + resolveDelay.toNumber());
+        setCanExpire(resolveTime.toNumber() > 0 && now >= resolveTime.toNumber() + expireDelay.toNumber());
+      } catch (error) {
+        console.error("Error checking timing:", error);
+      }
+    };
+
+    const interval = setInterval(checkTiming, 1000);
+    return () => clearInterval(interval);
+  }, [contract]);
+
+  // Thay vào đó, tự động kết nối khi component mount
+  useEffect(() => {
+    const autoConnect = async () => {
+      if (!isLoggedIn) {
+        await connectWallet();
+      }
+    };
+    autoConnect();
+  }, []);
+
+  // Sửa lại handleCoinSelect
   const handleCoinSelect = async (event: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedValue = event.target.value;
-    setSelectedCoin(availableCoins.find(coin => coin.value === selectedValue) || null);
+    const coin = availableCoins.find(c => c.value === selectedValue);
+    setSelectedCoin(coin || null);
 
-    // Gọi hàm để lấy strikePrice ngay khi chọn coin
-    if (contract) {
+    if (contract && coin) {
+      try {
         const oracleDetails = await contract.oracleDetails();
-        const strikePrice = oracleDetails.strikePrice; // Lấy giá trị strikePrice
-        setStrikePrice(strikePrice instanceof BigNumber ? strikePrice.toNumber() : 0); // Cập nhật strikePrice
-    }
-};
+        setStrikePrice(Number(ethers.utils.formatUnits(oracleDetails.strikePrice, 0)).toString());
 
-  // Hàm đặt cược
+        // Subscribe to new price updates for selected coin
+        const priceService = PriceService.getInstance();
+        const symbol = coinSymbols[coin.value];
+        priceService.subscribeToPriceUpdates((data) => {
+          setCurrentPrice(data.price);
+        }, symbol, 5000);
+      } catch (error) {
+        console.error("Error in handleCoinSelect:", error);
+      }
+    }
+  };
+
+  // Sửa lại handleBid
   const handleBid = async (side: Side) => {
-    if (!bidAmount || Number(bidAmount) <= 0 || !selectedCoin) {
-      toast({
-        title: "Invalid Input",
-        description: "Please select a coin and enter a valid bid amount.",
-        status: "warning",
-        duration: 3000,
-        isClosable: true,
-      });
-      return;
-    }
-
-    setSelectedSide(side);
-    
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
-    const signer = provider.getSigner();
-    const contract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, signer);
-    setContract(contract);
-
-    const bidAmountWei = ethers.utils.parseEther(bidAmount);
+    if (!contract || !bidAmount || Number(bidAmount) <= 0) return;
 
     try {
-      if (currentPhase !== Phase.Trading) {
+      // Kiểm tra phase
+      if (currentPhase !== Phase.Bidding) {
         toast({
-          title: "Market is not in trading phase",
-          description: "Please wait for the next round.",
+          title: "Error",
+          description: "Not in Bidding phase",
           status: "error",
           duration: 3000,
-          isClosable: true,
         });
         return;
       }
 
-      // Gửi giao dịch đặt cược lên contract
-      const tx = await contract.bid(side, { value: bidAmountWei });
+      console.log("Placing bid:", {
+        side: side,
+        amount: bidAmount,
+        phase: currentPhase
+      });
+
+      // Convert bid amount to Wei
+      const bidAmountWei = ethers.utils.parseEther(bidAmount);
+      
+      // Gọi hàm bid của contract với value là số ETH đặt cược
+      const tx = await contract.bid(side, { 
+        value: bidAmountWei,
+        gasLimit: 500000 
+      });
       await tx.wait();
 
-      setBalance(prev => prev - Number(bidAmount));
-      setPositions(prev => ({
-        ...prev,
-        [Side[side].toLowerCase() as keyof typeof prev]: prev[Side[side].toLowerCase() as keyof typeof prev] + Number(bidAmount)
-      }));
-      setTotalDeposited(prev => prev + Number(bidAmount));
+      // Lưu lại lệnh người dùng đã đặt
+      setUserPosition(side);
+      setSelectedSide(side);
 
-      // Chỉ gọi fetchMarketDetails khi cần thiết
-      fetchMarketDetails(contract);
-      await fetchContractBalance();
+      // Cập nhật UI sau khi đặt cược thành công
+      await Promise.all([
+        fetchMarketDetails(),
+        fetchBalance()
+      ]);
+
+      // Reset bid amount
       setBidAmount("");
-    } catch (error) {
+
+      // Hiển thị thông báo thành công
+      toast({
+        title: "Bid placed successfully",
+        description: `Placed ${bidAmount} ETH on ${side === Side.Long ? 'UP' : 'DOWN'}`,
+        status: "success",
+        duration: 3000,
+      });
+
+    } catch (error: any) {
       console.error("Error placing bid:", error);
       toast({
         title: "Error placing bid",
-        description: "An unexpected error occurred. Please try again.",
+        description: error.message || "Something went wrong",
         status: "error",
         duration: 3000,
-        isClosable: true,
       });
     }
   };
@@ -325,7 +380,7 @@ useEffect(() => {
   useEffect(() => {
     const interval = setInterval(() => {
       if (contract && currentPhase !== Phase.Bidding) { // Ngăn không cho cập nhật trong phase Bidding
-        fetchMarketDetails(contract);
+        fetchMarketDetails();
       }
     }, 5000); // Gọi hàm mỗi 5 giây
     return () => clearInterval(interval); // Clear interval khi component bị unmount
@@ -333,44 +388,28 @@ useEffect(() => {
 
   // Hàm claimReward khi phase là Expiry
   const claimReward = async () => {
-    if (contract && currentPhase === Phase.Expiry) {
-      const provider = new ethers.providers.Web3Provider(window.ethereum); // Define provider here
-      try {
-        const tx = await contract.claimReward();  // Gọi smart contract
-        await tx.wait();
-  
-        const newBalanceWei = await provider.getBalance(walletAddress);
-        const newBalanceEth = parseFloat(ethers.utils.formatEther(newBalanceWei));
+    if (!contract || currentPhase !== Phase.Expiry) return;
 
-        const fee = (reward * 0.10); // 10% phí
-        const finalReward = reward - fee;
-        
-        setBalance(newBalanceEth);  // Cập nhật lại số dư
-        setReward(finalReward);  // Reset lại reward sau khi claim
-        setShowClaimButton(false);  // Ẩn nút claim sau khi đã nhận
-        setTotalDeposited(0); 
-        // Cập nhật lại bảng Long/Short
-        await fetchMarketDetails(contract); // Gọi lại hàm để cập nhật thông tin
-        await fetchContractBalance();
+    try {
+      const tx = await contract.claimReward();
+      await tx.wait();
 
+      // Update states after successful claim
+      await Promise.all([
+        fetchMarketDetails(),
+        fetchContractBalance()
+      ]);
 
-        toast({
-          title: "Reward claimed!",
-          description: `You've successfully claimed your reward.`,
-          status: "success",
-          duration: 3000,
-          isClosable: true,
-        });
-      } catch (error) {
-        console.error("Error claiming reward:", error);
-        toast({
-          title: "Error claiming reward",
-          description: "An error occurred. Please try again.",
-          status: "error",
-          duration: 3000,
-          isClosable: true,
-        });
-      }
+      setShowClaimButton(false);
+      setReward(0);
+
+    } catch (error) {
+      console.error("Error claiming reward:", error);
+      toast({
+        title: "Error claiming reward",
+        status: "error",
+        duration: 3000,
+      });
     }
   };
   
@@ -430,8 +469,8 @@ useEffect(() => {
     const resetMarket = () => {
       setPositions({ long: 0, short: 0 });
       setTotalDeposited(0);
-      setStrikePrice(0); // Đặt lại giá strikePrice mặc định hoặc giá khởi tạo
-      setFinalPrice(0);
+      setStrikePrice('0');
+      setFinalPrice('0');
       setCurrentPhase(Phase.Bidding);
       priceControls.set({ opacity: 1, color: "#FEDF56" });
     };
@@ -441,198 +480,468 @@ useEffect(() => {
       return `${address.slice(0, 6)}...${address.slice(-4)}`;
     };
 
+  useEffect(() => {
+    const priceService = PriceService.getInstance();
+    
+    const handlePriceUpdate = (priceData: PriceData) => {
+      setCurrentPrice(priceData.price);
+    };
+
+    // Subscribe to price updates when component mounts
+    priceService.subscribeToPriceUpdates(handlePriceUpdate, 'BTCUSDT', 5000);
+
+    // Cleanup subscription when component unmounts
+    return () => {
+      priceService.unsubscribeFromPriceUpdates(handlePriceUpdate);
+    };
+  }, []);
+
+  // Sửa lại useEffect cho price history
+  useEffect(() => {
+    const fetchPriceHistory = async () => {
+      if (selectedCoin) {
+        try {
+          const priceService = PriceService.getInstance();
+          // Lấy symbol tương ứng với contract address
+          const symbol = coinSymbols[selectedCoin.value];
+          const klines = await priceService.fetchKlines(symbol, '1m', 100);
+          setChartData(klines);
+        } catch (error) {
+          console.error("Error fetching price history:", error);
+        }
+      }
+    };
+
+    fetchPriceHistory();
+    const interval = setInterval(fetchPriceHistory, 60000);
+    return () => clearInterval(interval);
+  }, [selectedCoin]);
+
+  // Thêm hàm xử lý resolve và expire
+  const handleResolveMarket = async () => {
+    try {
+      const tx = await contract.resolveMarket();
+      await tx.wait();
+      toast({
+        title: "Market resolved successfully",
+        status: "success",
+        duration: 3000,
+      });
+      await fetchMarketDetails();
+    } catch (error: any) {
+      toast({
+        title: "Error resolving market",
+        description: error.message,
+        status: "error",
+        duration: 3000,
+      });
+    }
+  };
+
+  const handleExpireMarket = async () => {
+    try {
+      const tx = await contract.expireMarket();
+      await tx.wait();
+      toast({
+        title: "Market expired successfully",
+        status: "success",
+        duration: 3000,
+      });
+      await fetchMarketDetails();
+    } catch (error: any) {
+      toast({
+        title: "Error expiring market",
+        description: error.message,
+        status: "error",
+        duration: 3000,
+      });
+    }
+  };
+
+  useEffect(() => {
+    const loadContractData = async () => {
+      try {
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const contractAddress = localStorage.getItem('selectedContractAddress');
+        
+        if (!contractAddress) {
+          console.error("No contract address found");
+          return;
+        }
+
+        const contract = new ethers.Contract(
+          contractAddress,
+          BinaryOptionMarket.abi,
+          provider
+        );
+
+        // Lấy strikePrice từ contract
+        const strikePriceFromContract = await contract.strikePrice();
+        setStrikePrice(strikePriceFromContract.toString());
+
+        // Lấy oracleDetails để có finalPrice
+        const oracleDetails = await contract.oracleDetails();
+        if (oracleDetails && oracleDetails.finalPrice) {
+          setFinalPrice(oracleDetails.finalPrice);
+        }
+
+        console.log("Contract data loaded:", {
+          strikePrice: strikePriceFromContract.toString(),
+          finalPrice: oracleDetails?.finalPrice || 'Not set'
+        });
+
+      } catch (error) {
+        console.error("Error loading contract data:", error);
+      }
+    };
+
+    loadContractData();
+  }, []);
+
   return (
-    <Flex direction="column" alignItems="center" justifyContent="flex-start" p={6} bg="black" minH="100vh" position="relative">
-      <VStack
-        width={{ base: '90%', md: '700px' }}
-        spacing={8}
-        align="stretch"
-        color="#FEDF56"
-        fontFamily="Arial, sans-serif"
-      >
-        {isLoggedIn && (
-          <HStack spacing={4} justify="space-between" width="100%">
-            <HStack>
-              <Icon as={FaWallet} />
-              <Text>{abbreviateAddress(walletAddress)}</Text>
-            </HStack>
-            <HStack>
-              <Icon as={FaEthereum} />
-              <Text>{balance.toFixed(4)} ETH</Text>
-            </HStack>
-            <HStack>
-              {/* <Icon as={FaTrophy} />
-              <Text>{accumulatedWinnings.toFixed(4)} ETH</Text> */}
-                {reward > 0 && showClaimButton && (
-                  <Button onClick={claimReward} size="sm" colorScheme="yellow" variant="outline"
-                  isDisabled={reward === 0}
-                  >
-                    Claim {reward.toFixed(4)} ETH
-                  </Button>
-              )}
-            </HStack> 
-          </HStack>
-        )}
-  
-        {isLoggedIn ? (
-          <>
-            <Select 
-              placeholder="Select Coin" 
-              onChange={handleCoinSelect} 
-              value={selectedCoin?.value || ''}
-              color="black"
-              bg="#FEDF56"
-              size="lg"
-            >
-              {availableCoins.map((coin) => (
-                <option key={coin.value} value={coin.value}>
-                  {coin.label}
-                </option>
-              ))}
-            </Select>
-            {selectedCoin && (
-              <VStack spacing={8} alignItems="center">
-                <Box
-                  border="2px solid #FEDF56"
-                  borderRadius="full"
-                  padding="20px"
-                  width="100%"
-                  textAlign="center"
-                >
-                  <motion.div animate={priceControls}>
-                  <Text fontSize="4xl" fontWeight="bold">
-                    {countdown !== null ? "" : (currentPhase === Phase.Maturity || currentPhase === Phase.Expiry ? finalPrice.toFixed(2) : strikePrice.toFixed(2))}
-                  </Text>
-                  </motion.div>
-                </Box>
-                <VStack spacing={2}>
-                  <Text fontSize="lg">Current Phase: {Phase[currentPhase]}</Text>
-                  <Text fontSize="lg">Total Deposited: {totalDeposited.toFixed(4)} ETH</Text>
-                </VStack>
-  
-                <VStack spacing={8} width="100%">
-                  <Input
-                    placeholder="Enter bid amount in ETH"
-                    value={bidAmount}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (/^\d*\.?\d*$/.test(value)) setBidAmount(value);
-                    }}
-                    color="#FEDF56"
-                    bg="transparent"
-                    border="none"
-                    textAlign="center"
-                    _placeholder={{ color: "#FEDF56" }}
-                    size="lg"
-                    fontSize="xl"
-                  />
-  
-                  <Flex justify="center" gap="100px">
-                    <Button
-                      onClick={() => handleBid(Side.Long)}
-                      isDisabled={!bidAmount || Number(bidAmount) <= 0 || !selectedCoin || currentPhase !== Phase.Trading}
-                      bg="#FEDF56"
-                      color="black"
-                      _hover={{ bg: "#D5D5D5", color: "green", transform: "scale(1.2)" }}
-                      width="120px"
-                      height="50px"
-                      fontSize="xl"
-                      transition="all 0.2s"
-                    >
-                      Up
-                    </Button>
-                    <Button
-                      onClick={() => handleBid(Side.Short)}
-                      isDisabled={!bidAmount || Number(bidAmount) <= 0 || !selectedCoin || currentPhase !== Phase.Trading}
-                      bg="#FEDF56"
-                      color="black"
-                      _hover={{ bg: "#D5D5D5", color: "red", transform: "scale(1.2)" }}
-                      width="120px"
-                      height="50px"
-                      fontSize="xl"
-                      transition="all 0.2s"
-                    >
-                      Down
-                    </Button>
-                  </Flex>
-  
-                  <Table variant="simple" colorScheme="yellow">
-                    <Thead>
-                      <Tr>
-                        <Th color="#FEDF56">Position</Th>
-                        <Th color="#FEDF56" isNumeric>Your Bid</Th>
-                        <Th color="#FEDF56" isNumeric>Total Market</Th>
-                      </Tr>
-                    </Thead>
-                    <Tbody>
-                      <Tr>
-                        <Td>Long</Td>
-                        <Td isNumeric>{positions.long.toFixed(4)} ETH</Td>
-                        <Td isNumeric>{positions.long.toFixed(4)} ETH</Td>
-                      </Tr>
-                      <Tr>
-                        <Td>Short</Td>
-                        <Td isNumeric>{positions.short.toFixed(4)} ETH</Td>
-                        <Td isNumeric>{positions.short.toFixed(4)} ETH</Td>
-                      </Tr>
-                    </Tbody>
-                  </Table>
-                </VStack>
-              </VStack>
-            )}
-          </>
-        ) : (
-          <Button
-            onClick={connectWallet}
-            backgroundColor="#FEDF56"
-            color="#5D3A1A"
-            _hover={{ backgroundColor: "#D5D5D5" }}
-            padding="25px"
-            borderRadius="full"
-            fontWeight="bold"
-            fontSize="xl"
-            w="full"
-          >
-            Login / Connect Wallet
-          </Button>
-        )}
-      </VStack>
-      
-      {countdown !== null && (
-        <Box
-          position="fixed"
-          top="50%"
-          left="50%"
-          transform="translate(-50%, -50%)"
-          bg="rgba(0, 0, 0, 0.8)"
+    <Box bg="black" minH="100vh">
+      {/* Header Section */}
+      <Flex px={6} py={4} alignItems="center">
+        <Button 
+          leftIcon={<FaChevronLeft />} 
+          variant="ghost" 
           color="#FEDF56"
-          fontSize="6xl"
-          fontWeight="bold"
-          p={8}
-          borderRadius="xl"
-          zIndex={1000}
+          onClick={() => router.push('/listaddress')} // Thêm onClick handler
+          _hover={{ bg: 'rgba(254, 223, 86, 0.1)' }}
         >
-          {countdown}
+          Markets
+        </Button>
+        <Spacer />
+      </Flex>
+
+      {/* Main Content */}
+      <Flex p={6}>
+        <Box flex="0.7" pr={6}>
+          {/* Market Selection & Info */}
+          <VStack align="start" spacing={4} mb={6}>
+            <HStack>
+              <Icon as={SiBitcoinsv} boxSize={6} color="#FEDF56" />
+              {isLoggedIn && (
+                <Select 
+                  placeholder="Select Market"
+                  value={selectedCoin?.value || ''}
+                  onChange={handleCoinSelect}
+                  variant="unstyled"
+                  color="#FEDF56"
+                  fontSize="2xl"
+                  fontWeight="bold"
+                >
+                  {availableCoins.map((coin) => (
+                    <option key={coin.value} value={coin.value} style={{background: "black"}}>
+                      {coin.label}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </HStack>
+            <HStack color="gray.400" fontSize="sm">
+              <Text>{totalDeposited.toFixed(4)} ETH deposited</Text>
+              <Text>•</Text>
+              <Text>Phase: {Phase[currentPhase]}</Text>
+            </HStack>
+          </VStack>
+
+          {/* Thông báo kết quả - Đã di chuyển lên trên và thêm style mới */}
+          {(currentPhase === Phase.Maturity || currentPhase === Phase.Expiry) && marketResult && (
+            <Box 
+              mb={6} 
+              p={3} 
+              borderWidth="1px" 
+              borderColor="#FEDF56" 
+              borderRadius="md"
+              display="flex"
+              justifyContent="center"
+              alignItems="center"
+            >
+              <Text
+                color="#FEDF56"
+                fontSize="xl"
+                fontWeight="bold"
+              >
+                {marketResult}
+              </Text>
+            </Box>
+          )}
+
+          {/* Chart Section */}
+          <Tabs variant="line" colorScheme="yellow" mb={6}>
+            <TabList borderBottom="1px solid #2D3748">
+              <Tab color="#FEDF56" _selected={{ color: "#FEDF56", borderColor: "#FEDF56" }}>Price Chart</Tab>
+              <Tab color="#FEDF56" _selected={{ color: "#FEDF56", borderColor: "#FEDF56" }}>Position Chart</Tab>
+            </TabList>
+            <TabPanels>
+              <TabPanel p={0} pt={4}>
+                <Box h="400px" border="1px solid #2D3748" borderRadius="xl" p={4}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                      <XAxis 
+                        dataKey="time" 
+                        tickFormatter={(time) => new Date(time).toLocaleTimeString()}
+                        stroke="#FEDF56"
+                      />
+                      <YAxis domain={['auto', 'auto']} stroke="#FEDF56" />
+                      <Tooltip
+                        contentStyle={{ 
+                          backgroundColor: '#000', 
+                          border: '1px solid #FEDF56',
+                          color: '#FEDF56'
+                        }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="close" 
+                        stroke="#FEDF56" 
+                        dot={false}
+                        strokeWidth={2}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </Box>
+              </TabPanel>
+              <TabPanel p={0} pt={4}>
+                <Box h="400px" border="1px solid #2D3748" borderRadius="xl" p={4}>
+                  {/* Position Chart Content */}
+                </Box>
+              </TabPanel>
+            </TabPanels>
+          </Tabs>
+
+          {/* Strike/Final Price Display */}
+          <Box p={4} border="1px solid #2D3748" borderRadius="xl">
+            <Text 
+              fontSize="xl" 
+              color="#FEDF56" 
+              textAlign="center"
+              fontWeight="bold"
+            >
+              {currentPhase >= Phase.Maturity 
+                ? `Final Price: ${finalPrice} USD`
+                : `Strike Price: ${strikePrice} USD`
+              }
+            </Text>
+          </Box>
         </Box>
-      )}
-      <ScaleFade initialScale={0.9} in={showResult}>
-        <Box
-          position="fixed"
-          top="50%"
-          left="50%"
-          transform="translate(-50%, -50%)"
-          bg={resultMessage === "YOU WIN" ? "green.500" : "red.500"}
-          color="white"
-          fontSize="5xl"
-          fontWeight="bold"
-          p={8}
-          borderRadius="xl"
-          zIndex={1000}
-        >
-          {resultMessage}
+
+        {/* Right Column - 30% */}
+        <Box flex="0.3">
+          {!isLoggedIn ? (
+            <Button
+              onClick={connectWallet}
+              backgroundColor="#FEDF56"
+              color="#5D3A1A"
+              _hover={{ backgroundColor: "#D5D5D5" }}
+              padding="25px"
+              borderRadius="full"
+              fontWeight="bold"
+              fontSize="xl"
+              w="full"
+            >
+              Login / Connect Wallet
+            </Button>
+          ) : (
+            <VStack spacing={4}>
+              {/* Wallet Info */}
+              <HStack justify="space-between" width="100%">
+                <HStack>
+                  <Icon as={FaWallet} />
+                  <Text color="#FEDF56">{abbreviateAddress(walletAddress)}</Text>
+                </HStack>
+                <HStack>
+                  <Icon as={FaEthereum} />
+                  <Text color="#FEDF56">{balance.toFixed(4)} ETH</Text>
+                </HStack>
+              </HStack>
+
+              {/* Position Distribution */}
+              <Flex justify="space-between" width="100%">
+                <Text color="green.400">Long {((positions.long / totalDeposited) * 100 || 0).toFixed(1)}%</Text>
+                <Text color="red.400">Short {((positions.short / totalDeposited) * 100 || 0).toFixed(1)}%</Text>
+              </Flex>
+
+              {/* Trading Section */}
+              <VStack spacing={4} width="100%">
+                <Input
+                  placeholder="Enter bid amount in ETH"
+                  value={bidAmount}
+                  onChange={(e) => {
+                    if (/^\d*\.?\d*$/.test(e.target.value)) setBidAmount(e.target.value);
+                  }}
+                  bg="transparent"
+                  color="#FEDF56"
+                  borderColor="#2D3748"
+                  isDisabled={canResolve}
+                />
+
+                {/* Bid Buttons */}
+                <Flex width="100%" gap={4}>
+                  <Button
+                    onClick={() => handleBid(Side.Long)}
+                    isDisabled={canResolve}
+                    bg={userPosition === Side.Long ? "#00FF00" : "#00EE00"}
+                    color="black"
+                    width="50%"
+                    height="48px"
+                    fontSize="lg"
+                    fontWeight="bold"
+                    _hover={{ bg: "#00FF00" }}
+                    opacity={userPosition === Side.Long ? 1 : 0.8}
+                    transition="all 0.2s"
+                  >
+                    UP
+                  </Button>
+
+                  <Button
+                    onClick={() => handleBid(Side.Short)}
+                    isDisabled={canResolve}
+                    bg={userPosition === Side.Short ? "#FF1111" : "#FF0033"}
+                    color="black"
+                    width="50%"
+                    height="48px"
+                    fontSize="lg"
+                    fontWeight="bold"
+                    _hover={{ bg: "#FF1111" }}
+                    opacity={userPosition === Side.Short ? 1 : 0.8}
+                    transition="all 0.2s"
+                  >
+                    DOWN
+                  </Button>
+                </Flex>
+              </VStack>
+
+              {/* Position Info */}
+              <Box border="1px solid #2D3748" borderRadius="xl" p={4} width="100%">
+                <Text color="#FEDF56" mb={4}>Your Positions</Text>
+                <VStack align="stretch" spacing={2}>
+                  <Flex justify="space-between">
+                    <Text color="green.400">Long:</Text>
+                    <Text color="#FEDF56">{positions.long.toFixed(4)} ETH</Text>
+                  </Flex>
+                  <Flex justify="space-between">
+                    <Text color="red.400">Short:</Text>
+                    <Text color="#FEDF56">{positions.short.toFixed(4)} ETH</Text>
+                  </Flex>
+                </VStack>
+              </Box>
+
+              {/* Phase Info */}
+              <Box width="100%" mt={4}>
+                <VStack align="stretch" spacing={6} position="relative">
+                  {/* Vertical Line */}
+                  <Box
+                    position="absolute"
+                    left="15px"
+                    top="15px"
+                    bottom="15px"
+                    width="2px"
+                    bg="gray.700"
+                    zIndex={0}
+                  />
+
+                  {/* Phase Items with Buttons */}
+                  <HStack spacing={4}>
+                    <Circle
+                      size="30px"
+                      bg={currentPhase === Phase.Trading ? "#FEDF56" : "gray.700"}
+                      color={currentPhase === Phase.Trading ? "black" : "gray.500"}
+                      fontWeight="bold"
+                      zIndex={1}
+                    >
+                      1
+                    </Circle>
+                    <Text color={currentPhase === Phase.Trading ? "#FEDF56" : "gray.500"}>
+                      Trading
+                    </Text>
+                  </HStack>
+
+                  <HStack spacing={4}>
+                    <Circle
+                      size="30px"
+                      bg={currentPhase === Phase.Bidding ? "#FEDF56" : "gray.700"}
+                      color={currentPhase === Phase.Bidding ? "black" : "gray.500"}
+                      fontWeight="bold"
+                      zIndex={1}
+                    >
+                      2
+                    </Circle>
+                    <Text color={currentPhase === Phase.Bidding ? "#FEDF56" : "gray.500"}>
+                      Bidding
+                    </Text>
+                  </HStack>
+
+                  <HStack spacing={4} justify="space-between">
+                    <HStack spacing={4}>
+                      <Circle
+                        size="30px"
+                        bg={currentPhase === Phase.Maturity ? "#FEDF56" : "gray.700"}
+                        color={currentPhase === Phase.Maturity ? "black" : "gray.500"}
+                        fontWeight="bold"
+                        zIndex={1}
+                      >
+                        3
+                      </Circle>
+                      <Text color={currentPhase === Phase.Maturity ? "#FEDF56" : "gray.500"}>
+                        Maturity
+                      </Text>
+                    </HStack>
+                    <Button
+                      onClick={handleResolveMarket}
+                      isDisabled={!canResolve || currentPhase !== Phase.Bidding}
+                      colorScheme="yellow"
+                      size="sm"
+                    >
+                      Resolve Market
+                    </Button>
+                  </HStack>
+
+                  <HStack spacing={4} justify="space-between">
+                    <HStack spacing={4}>
+                      <Circle
+                        size="30px"
+                        bg={currentPhase === Phase.Expiry ? "#FEDF56" : "gray.700"}
+                        color={currentPhase === Phase.Expiry ? "black" : "gray.500"}
+                        fontWeight="bold"
+                        zIndex={1}
+                      >
+                        4
+                      </Circle>
+                      <Text color={currentPhase === Phase.Expiry ? "#FEDF56" : "gray.500"}>
+                        Expiry
+                      </Text>
+                    </HStack>
+                    <Button
+                      onClick={handleExpireMarket}
+                      isDisabled={!canExpire || currentPhase !== Phase.Maturity}
+                      colorScheme="yellow"
+                      size="sm"
+                    >
+                      Expire Market
+                    </Button>
+                  </HStack>
+                </VStack>
+              </Box>
+
+              {/* Claim Button */}
+              {reward > 0 && showClaimButton && (
+                <Button
+                  onClick={claimReward}
+                  colorScheme="yellow"
+                  isDisabled={reward === 0}
+                  width="100%"
+                >
+                  Claim {reward.toFixed(4)} ETH
+                </Button>
+              )}
+            </VStack>
+          )}
         </Box>
-      </ScaleFade>
-    </Flex>
+      </Flex>
+    </Box>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ethers } from 'ethers';
-import { Box, Button, HStack, Icon, Text, VStack } from '@chakra-ui/react';
+import { Box, Button, HStack, Icon, Text, VStack, SimpleGrid } from '@chakra-ui/react';
 import { CheckIcon, InfoIcon, ExternalLinkIcon, TimeIcon, InfoOutlineIcon } from '@chakra-ui/icons'; // Import icons
 import { FaCalendarDay, FaPlayCircle, FaClock, FaCheckCircle, FaListAlt } from 'react-icons/fa'; // Import các biểu tượng
 import { IoWalletOutline } from "react-icons/io5";
@@ -12,14 +12,27 @@ import { useToast } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
 import fs from 'fs'; // Import fs để đọc file
 import { FACTORY_ADDRESS } from '../config/contracts';
+import BinaryOptionMarket from '../../../out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
 
 interface ListAddressOwnerProps {
     ownerAddress: string; // Đảm bảo ownerAddress là địa chỉ hợp lệ
     page: number;
 }
 
+interface ContractInfo {
+    contractAddress: string;
+    tradingPair: string;
+}
+
+interface ContractData {
+    address: string;
+    createDate: string;
+    longAmount: string;
+    shortAmount: string;
+}
+
 const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", page }: { ownerAddress: string; page: number }) => {
-    const [deployedContracts, setDeployedContracts] = useState<{ address: string; createDate: string }[]>([]); // Update type
+    const [deployedContracts, setDeployedContracts] = useState<ContractData[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [isWalletConnected, setIsWalletConnected] = useState(false);
     const [balance, setBalance] = useState('');
@@ -29,8 +42,8 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress = "0xf
 
     // Phân trang
     const currentPage = page;
-    const contractsPerPage = 8;
-    const [currentContracts, setCurrentContracts] = useState<{ address: string; createDate: string }[]>([]);
+    const contractsPerPage = 20;
+    const [currentContracts, setCurrentContracts] = useState<ContractData[]>([]);
 
     //const [FactoryAddress, setFactoryAddress] = useState<string>('');
     const FactoryAddress = FACTORY_ADDRESS;
@@ -110,17 +123,38 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress = "0xf
             return;
         }
         setLoading(true);
-        console.log("Fetching contracts for owner address:", ownerAddress);
-
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
-        const contract = new ethers.Contract(FactoryAddress, Factory.abi, provider);
 
         try {
-            const contracts = await contract.getContractsByOwner(ownerAddress);
-            console.log("Contracts fetched from Factory contract:", contracts);
+            const provider = new ethers.providers.Web3Provider(window.ethereum);
+            const contract = new ethers.Contract(FactoryAddress, Factory.abi, provider);
+
+            // Lấy danh sách addresses từ Factory
+            const addresses = await contract.getContractsByOwner(ownerAddress);
+            console.log("Contracts fetched:", addresses);
+
             const currentDate = new Date().toLocaleDateString();
-            const contractsWithDate = contracts.map(address => ({ address, createDate: currentDate }));
-            setDeployedContracts(contractsWithDate);
+
+            // Map addresses sang ContractData
+            const contractsWithPositions = addresses.map((address: string) => {
+                const positionsData = localStorage.getItem(`positions_${address}`);
+                const positions = positionsData ? JSON.parse(positionsData) : null;
+                
+                return {
+                    address: address,
+                    createDate: currentDate,
+                    longAmount: positions?.longAmount || "0.0000",
+                    shortAmount: positions?.shortAmount || "0.0000"
+                };
+            });
+
+            setDeployedContracts(contractsWithPositions);
+            
+            // Cập nhật currentContracts dựa trên trang hiện tại
+            const indexOfLastContract = page * contractsPerPage;
+            const indexOfFirstContract = indexOfLastContract - contractsPerPage;
+            const newCurrentContracts = contractsWithPositions.slice(indexOfFirstContract, indexOfLastContract);
+            setCurrentContracts(newCurrentContracts);
+
         } catch (error) {
             console.error("Error fetching contracts:", error);
         } finally {
@@ -157,29 +191,36 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress = "0xf
         };
     }, [ownerAddress]);
 
-    const handleAddressClick = (address: string) => {
-        const contractDetails = deployedContracts.find(contract => contract.address === address);
-        
-        if (contractDetails) {
-            // Lưu contractAddress vào localStorage
+    const handleAddressClick = async (address: string) => {
+        try {
+            // Kiểm tra và kết nối ví nếu chưa kết nối
+            if (!isWalletConnected) {
+                await connectWallet();
+            }
+
+            // Lưu địa chỉ contract vào localStorage
             localStorage.setItem('selectedContractAddress', address);
-    
-            const targetPath = walletAddress === ownerAddress ? '/ownerdeploy' : '/customer';
-            
-            router.push({
-                pathname: targetPath,
-                query: {
-                    address,
-                    //currentPhase: contractDetails.currentPhase
-                },
-            });
-        } else {
+
+            // Kiểm tra xem người dùng có phải owner không
+            const provider = new ethers.providers.Web3Provider(window.ethereum);
+            const signer = provider.getSigner();
+            const contract = new ethers.Contract(address, BinaryOptionMarket.abi, signer);
+            const owner = await contract.owner();
+            const currentAddress = await signer.getAddress();
+
+            // Navigate dựa trên role
+            if (owner.toLowerCase() === currentAddress.toLowerCase()) {
+                router.push('/ownerdeploy');
+            } else {
+                router.push('/customer');
+            }
+        } catch (error) {
+            console.error("Error handling address click:", error);
             toast({
-                title: "Invalid address",
-                description: "The address you clicked is not valid.",
+                title: "Error",
+                description: "Please connect your wallet first",
                 status: "error",
-                duration: 5000,
-                isClosable: true,
+                duration: 3000,
             });
         }
     };
@@ -187,6 +228,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress = "0xf
     
      // Hàm rút gọn địa chỉ ví
      const shortenAddress = (address: string) => {
+        if (!address) return '';
         return `${address.slice(0, 6)}...${address.slice(-4)}`;
     };
 
@@ -225,10 +267,10 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress = "0xf
                 </HStack>
             )}
             <HStack spacing={0} align="stretch" flexGrow={1}>
-                {/* Bên Trái: Danh sách Coin */}
-                <Box width="30%" p={4} ml={0} backgroundColor="#1A1A1A" borderRadius="md">
-                    <Text fontSize="2xl" fontWeight="bold" color="white">NAVIGATION</Text>
-                    <VStack spacing={2} mt={4} align="start">
+                {/* NAVIGATION - Đẩy sát trái hơn */}
+                <Box width="250px" p={4} ml={-4} backgroundColor="#1A1A1A" borderRadius="md">
+                    <Text fontSize="2xl" fontWeight="bold" color="white" mb={6}>NAVIGATION</Text>
+                    <VStack spacing={3} align="start">
                         <Button 
                             variant="ghost" 
                             width="100%" 
@@ -277,59 +319,112 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress = "0xf
                     </VStack>
                 </Box>
 
-                {/* Bên Phải: Danh sách Sự kiện */}
-                <Box width="70%" p={4}>
-                    <Text fontSize="2xl" fontWeight="bold">ALL EVENTS</Text>
+                {/* ALL EVENTS - Tăng kích thước các tab */}
+                <Box flex={1} p={6}>
+                    <Text fontSize="2xl" fontWeight="bold" mb={6}>ALL EVENTS</Text>
                     {loading ? (
                         <Text>Loading...</Text>
                     ) : deployedContracts.length > 0 ? (
-                        currentContracts.map(({ address, createDate }, index) => (
-                            <Box key={index} p={4} borderWidth={1} borderRadius="md" mb={4} backgroundColor="#1A1A1A">
-                                <HStack justify="space-between" align="center">
-                                    <VStack align="start">
-                                    <HStack spacing={2} align="center">
-                                        <Icon as={SiBitcoinsv} boxSize={6} color="#FEDF56" />
-                                            <Text fontSize="lg" fontWeight="bold">
-                                                WIF/USD {(page - 1) * contractsPerPage + index + 1}
+                        <SimpleGrid 
+                            columns={{ base: 1, md: 2, lg: 3, xl: 4 }}
+                            spacing={4}
+                            width="100%"
+                        >
+                            {currentContracts.map(({ address, createDate, longAmount, shortAmount }, index) => (
+                                <Box
+                                    key={index}
+                                    p={4}
+                                    borderWidth={1}
+                                    borderRadius="lg"
+                                    bg="#1A1A1A"
+                                    onClick={() => handleAddressClick(address)}
+                                    cursor="pointer"
+                                    minH="250px"
+                                    _hover={{
+                                        transform: "translateY(-4px)",
+                                        boxShadow: "0 4px 12px rgba(254, 223, 86, 0.2)",
+                                        transition: "all 0.3s ease",
+                                        bg: "#2D2D2D"
+                                    }}
+                                >
+                                    <VStack align="start" spacing={3}>
+                                        <HStack spacing={3}>
+                                            <Icon as={SiBitcoinsv} boxSize={8} color="#FEDF56" />
+                                            <Text fontSize="xl" fontWeight="bold">
+                                                BTC/USD
                                             </Text>
-                                        </HStack>   
-                                        <HStack>
-                                        <Icon as={FaWallet} boxSize={6} mr={2} color="#FEDF56" />
-                                        <Text 
-                                            fontWeight="bold" 
-                                            fontSize="lg" 
-                                            onClick={() => handleAddressClick(address)} // Thay đổi ở đây
-                                            style={{ cursor: 'pointer', color: '#FEDF56', transition: 'color 0.3s'}}
-                                            _hover={{ color: '#FF6699', textDecoration: 'underline', fontStyle: 'italic' }}
-                                        >
-                                            Contract Address: {shortenAddress(address)}
-                                        </Text>
                                         </HStack>
-                                        <HStack>
-                                            <Icon as={TbCalendarTime} boxSize={4} mr={2} color="#FEDF56" />
-                                            <Text fontSize="sm"> 
-                                                Create Date: <span style={{ color: '#33FFFF' }}>{createDate}   </span>
-                                                Resolve Date: <span style={{ color: '#FF0033' }}>26/10/2024   </span>
-                                                <Icon as={TimeIcon} boxSize={4} mr={2}/>Time: <span style={{ color:"#00FF00" }}>7am</span></Text>
+
+                                        <HStack spacing={3} width="100%">
+                                            <Icon as={FaWallet} boxSize={5} color="#FEDF56" />
+                                            <Text
+                                                fontSize="md"
+                                                color="#FEDF56"
+                                                _hover={{ color: '#FF6699' }}
+                                            >
+                                                {shortenAddress(address)}
+                                            </Text>
+                                        </HStack>
+
+                                        <VStack align="start" spacing={2} fontSize="sm" width="100%">
+                                            <HStack>
+                                                <Icon as={TbCalendarTime} boxSize={5} color="#FEDF56" />
+                                                <Text>Create: <span style={{ color: '#33FFFF' }}>{createDate}</span></Text>
+                                            </HStack>
+                                            <HStack>
+                                                <Icon as={TimeIcon} boxSize={5} />
+                                                <Text>Resolve: <span style={{ color: '#FF0033' }}>26/10/2024</span></Text>
+                                            </HStack>
+                                            <HStack>
+                                                <Icon as={TimeIcon} boxSize={5} />
+                                                <Text>Time: <span style={{ color: "#00FF00" }}>7am</span></Text>
+                                            </HStack>
+                                        </VStack>
+
+                                        <HStack spacing={4} width="100%" justify="space-between" mt={2}>
+                                            <VStack align="center" w="48%">
+                                                <Text fontWeight="bold" fontSize="sm">LONG</Text>
+                                                <Button
+                                                    size="md"
+                                                    width="full"
+                                                    height="32px"
+                                                    colorScheme="green"
+                                                    bg="#00EE00"
+                                                    _hover={{ bg: "#00CC00" }}
+                                                    fontSize="sm"
+                                                >
+                                                    {(() => {
+                                                        const long = parseFloat(longAmount);
+                                                        const short = parseFloat(shortAmount);
+                                                        const total = long + short;
+                                                        return total > 0 ? `${((long / total) * 100).toFixed(1)}%` : '0%';
+                                                    })()}
+                                                </Button>
+                                            </VStack>
+                                            <VStack align="center" w="48%">
+                                                <Text fontWeight="bold" fontSize="sm">SHORT</Text>
+                                                <Button
+                                                    size="md"
+                                                    width="full"
+                                                    height="32px"
+                                                    colorScheme="red"
+                                                    bg="#FF0033"
+                                                    _hover={{ bg: "#CC0033" }}
+                                                    fontSize="sm"
+                                                >
+                                                    {(() => {
+                                                        const long = parseFloat(longAmount);
+                                                        const short = parseFloat(shortAmount);
+                                                        const total = long + short;
+                                                        return total > 0 ? `${((short / total) * 100).toFixed(1)}%` : '0%';
+                                                    })()}
+                                                </Button>
+                                            </VStack>
                                         </HStack>
                                     </VStack>
-                                    <HStack spacing={4}>
-                                        <VStack align="center">
-                                            <Text fontWeight="bold">LONG</Text>
-                                            <Button colorScheme="green" size="sm" backgroundColor="#00EE00" width="150px">
-                                                0.0000
-                                            </Button>
-                                        </VStack>
-                                        <VStack align="center">
-                                            <Text fontWeight="bold">SHORT</Text>
-                                            <Button colorScheme="red" size="sm" backgroundColor="#FF0033" width="150px">
-                                                0.0000
-                                            </Button>
-                                        </VStack>
-                                    </HStack>
-                                </HStack>
-                            </Box>
-                        ))
+                                </Box>
+                            ))}
+                        </SimpleGrid>
                     ) : (
                         <Text>No contracts found for this owner.</Text>
                     )}

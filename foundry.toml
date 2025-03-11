@@ -2,5 +2,11 @@
 src = "contracts"
 out = "out"
 libs = ["lib"]
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "@orally-network/=node_modules/@orally-network/",
+    "@orally-network/solidity-sdk/=node_modules/@orally-network/solidity-sdk/",
+    "@orally-network/registry/=node_modules/@orally-network/registry/"
+]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
