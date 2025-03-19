@@ -25,6 +25,7 @@ contract BinaryOptionMarket is Ownable {
     }
 
     uint256 public strikePrice;
+    uint256 public deployTime;
     OracleDetails public oracleDetails;
     OracleConsumer internal priceFeed;
     Position public positions;
@@ -37,19 +38,35 @@ contract BinaryOptionMarket is Ownable {
     mapping(address => uint) public shortBids;
     mapping(address => bool) public hasClaimed;
 
+    // Thêm biến thời gian
+    uint public maturityTime; // Thời gian resolve market
+    uint public resolveTime;
+    string public tradingPair;
+    uint public biddingStartTime; // Thêm biến state
+
     event Bid(Side side, address indexed account, uint value);
     event MarketResolved(string finalPrice, uint timeStamp);
     event RewardClaimed(address indexed account, uint value);
     event Withdrawal(address indexed user, uint amount);
+    event PositionUpdated(
+        uint timestamp,
+        uint longAmount,
+        uint shortAmount,
+        uint totalDeposited
+    );
+    event MarketOutcome(Side winningSide, address indexed user, bool isWinner);
 
-    // Thêm biến thời gian
-    uint public biddingStartTime;
-    uint public constant RESOLVE_DELAY = 1 minutes;  // Thời gian chờ trước khi resolve
-    uint public constant EXPIRE_DELAY = 30 seconds;  // Thời gian chờ trước khi expire
-    uint public resolveTime;
-
-    constructor(uint256 _strikePrice, address _owner) Ownable(_owner) {
+    constructor(
+        uint256 _strikePrice, 
+        address _owner,
+        string memory _tradingPair,
+        uint _maturityTime
+    ) Ownable(_owner) {
+        require(_maturityTime > block.timestamp, "Maturity time must be in the future");
         strikePrice = _strikePrice;
+        tradingPair = _tradingPair;
+        maturityTime = _maturityTime;
+        deployTime = block.timestamp;
         currentPhase = Phase.Trading;
     }
 
@@ -70,13 +87,20 @@ contract BinaryOptionMarket is Ownable {
         }
 
         totalDeposited += msg.value;
+
+        emit PositionUpdated(
+            block.timestamp,
+            positions.long,
+            positions.short,
+            totalDeposited
+        );
+        
         emit Bid(side, msg.sender, msg.value);
     }
 
-    event MarketOutcome(Side winningSide, address indexed user, bool isWinner);
     function resolveMarket() external {
         require(currentPhase == Phase.Bidding, "Market not in Bidding phase");
-        require(block.timestamp >= biddingStartTime + RESOLVE_DELAY, "Too early to resolve");
+        require(block.timestamp >= maturityTime, "Too early to resolve");
         
         currentPhase = Phase.Maturity;
         resolveTime = block.timestamp;
@@ -86,7 +110,7 @@ contract BinaryOptionMarket is Ownable {
         resolved = true;
 
         uint finalPrice = parsePrice(oracleDetails.finalPrice);
-        Side winningSide = finalPrice >= oracleDetails.strikePrice ? Side.Long : Side.Short;
+        Side winningSide = finalPrice < oracleDetails.strikePrice ? Side.Short : Side.Long;
         
         emit MarketResolved(price, block.timestamp);
         emit MarketOutcome(winningSide, address(0), true);
@@ -98,34 +122,20 @@ contract BinaryOptionMarket is Ownable {
         require(!hasClaimed[msg.sender], "Reward already claimed");
 
         uint finalPrice = parsePrice(oracleDetails.finalPrice);
-
-        Side winningSide;
-        if (finalPrice >= oracleDetails.strikePrice) {
-            winningSide = Side.Long;
-        } else {
-            winningSide = Side.Short;
-        }
+        uint strikePrice = oracleDetails.strikePrice;
+        
+        Side winningSide = finalPrice < strikePrice ? Side.Short : Side.Long;
 
         uint userDeposit;
         uint totalWinningDeposits;
-        bool isWinner = false;
 
         if (winningSide == Side.Long) {
             userDeposit = longBids[msg.sender];
             totalWinningDeposits = positions.long;
-            if (userDeposit > 0) {
-                isWinner = true;  // Người dùng thắng
-            }
         } else {
             userDeposit = shortBids[msg.sender];
             totalWinningDeposits = positions.short;
-            if (userDeposit > 0) {
-                isWinner = true;  // Người dùng thắng
-            }
         }
-
-        // Gửi sự kiện kết quả thắng/thua
-        emit MarketOutcome(winningSide, msg.sender, isWinner);
 
         require(userDeposit > 0, "No deposits on winning side");
 
@@ -142,21 +152,19 @@ contract BinaryOptionMarket is Ownable {
     function withdraw() public onlyOwner {
         uint amount = address(this).balance;
         require(amount > 0, "No balance to withdraw.");
-
         payable(msg.sender).transfer(amount);
-
-        emit Withdrawal(msg.sender, amount);
+        emit Withdrawal(msg.sender, amount);    
     }
 
     function startBidding() external onlyOwner {
         require(currentPhase == Phase.Trading, "Market not in Trading phase");
         currentPhase = Phase.Bidding;
-        biddingStartTime = block.timestamp;
+        biddingStartTime = block.timestamp; // Set thời điểm bắt đầu bidding
     }
 
     function expireMarket() external {
         require(currentPhase == Phase.Maturity, "Market not in maturity phase");
-        require(block.timestamp >= resolveTime + EXPIRE_DELAY, "Too early to expire");
+        require(block.timestamp >= resolveTime + 30 seconds, "Too early to expire");
         currentPhase = Phase.Expiry;
     }
 

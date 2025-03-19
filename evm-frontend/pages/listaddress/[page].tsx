@@ -1,5 +1,5 @@
 import { useRouter } from 'next/router';
-import ListAddressOwner from '../../components/ListAddressOwner';
+import ListAddressOwner from '../../src/components/ListAddressOwner';
 
 
 interface ListAddressOwnerProps {

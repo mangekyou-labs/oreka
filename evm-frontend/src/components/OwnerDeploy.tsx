@@ -6,6 +6,7 @@ import BinaryOptionMarket from '../../../out/BinaryOptionMarket.sol/BinaryOption
 import { fetchMarketDetails } from './Customer';
 import { FACTORY_ADDRESS } from '../config/contracts';
 import { useRouter } from 'next/router';
+import { useAuth } from '../context/AuthContext';
 
 // Thêm enum Phase vào đầu file, sau các imports
 enum Phase { Trading, Bidding, Maturity, Expiry }
@@ -15,12 +16,34 @@ interface OwnerDeployProps {
 }
 
 const OwnerDeploy: React.FC<OwnerDeployProps> = ({ address }) => {
+  const { isConnected, walletAddress, balance, connectWallet, refreshBalance } = useAuth();
   const [contractAddress, setContractAddress] = useState('');
-  const [walletAddress, setWalletAddress] = useState('');
   const [contractBalance, setContractBalance] = useState('');
   const [currentPhase, setCurrentPhase] = useState<Phase>(Phase.Trading);
   const toast = useToast();
   const router = useRouter();
+
+  // Thêm useEffect để tự động kết nối khi component mount
+  useEffect(() => {
+    const autoConnect = async () => {
+      if (!isConnected) {
+        try {
+          await connectWallet();
+        } catch (error) {
+          console.error("Auto connect failed:", error);
+          router.push('/listaddress');
+        }
+      }
+    };
+    autoConnect();
+  }, []);
+
+  // Thêm useEffect để theo dõi kết nối
+  useEffect(() => {
+    if (!isConnected) {
+      router.push('/listaddress');
+    }
+  }, [isConnected]);
 
   // Thêm useEffect để lấy địa chỉ contract từ localStorage
   useEffect(() => {
@@ -30,42 +53,42 @@ const OwnerDeploy: React.FC<OwnerDeployProps> = ({ address }) => {
     }
   }, []);
 
-  // Thêm useEffect để tự động kết nối khi component mount
+  // Thêm useEffect để cập nhật balance theo thời gian thực
   useEffect(() => {
-    const autoConnect = async () => {
-      if (typeof window.ethereum !== 'undefined') {
-        try {
-          const provider = new ethers.providers.Web3Provider(window.ethereum);
-          const signer = provider.getSigner();
-          const address = await signer.getAddress();
-          setWalletAddress(address);
-        } catch (error) {
-          console.error("Auto connect failed:", error);
-          router.push('/listaddress'); // Redirect về list nếu không kết nối được
-        }
-      }
-    };
-    autoConnect();
-  }, []);
+    if (isConnected) {
+      refreshBalance();
 
-  // Fetch contract balance
-  const fetchContractBalance = async () => {
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      provider.on("block", refreshBalance);
+
+      return () => {
+        provider.removeAllListeners("block");
+      };
+    }
+  }, [isConnected, refreshBalance]);
+
+  // Sửa lại fetchBalances để chỉ lấy contract balance
+  const fetchBalances = async () => {
+    if (!contractAddress) return;
+    
     try {
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const contractBalanceWei = await provider.getBalance(contractAddress);
       const contractBalanceEth = parseFloat(ethers.utils.formatEther(contractBalanceWei));
       setContractBalance(contractBalanceEth.toFixed(4));
-    } catch (error: any) {
-      console.error("Failed to fetch contract balance:", error);
-      toast({
-        title: "Error fetching contract balance",
-        description: error.message,
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
+    } catch (error) {
+      console.error("Failed to fetch balances:", error);
     }
   };
+
+  // Cập nhật useEffect để gọi fetchBalances
+  useEffect(() => {
+    if (contractAddress) {
+      fetchBalances();
+      const interval = setInterval(fetchBalances, 5000); // Refresh mỗi 5 giây
+      return () => clearInterval(interval);
+    }
+  }, [contractAddress]);
 
   // Thêm hàm để fetch phase hiện tại
   const fetchCurrentPhase = async () => {
@@ -98,7 +121,7 @@ const OwnerDeploy: React.FC<OwnerDeployProps> = ({ address }) => {
 
       // Cập nhật phase sau khi transaction thành công
       await fetchCurrentPhase();
-      fetchContractBalance();
+      fetchBalances();
       
       toast({
         title: "Bidding phase started!",
@@ -185,13 +208,27 @@ const OwnerDeploy: React.FC<OwnerDeployProps> = ({ address }) => {
       const signer = provider.getSigner();
       const contract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, signer);
 
+      // Lấy số dư contract trước khi withdraw
+      const balanceBefore = await provider.getBalance(contractAddress);
+      console.log("Balance before withdraw:", ethers.utils.formatEther(balanceBefore));
+
       const tx = await contract.withdraw();
       await tx.wait();
 
-      fetchContractBalance();
+      // Lấy số dư contract sau khi withdraw
+      const balanceAfter = await provider.getBalance(contractAddress);
+      console.log("Balance after withdraw:", ethers.utils.formatEther(balanceAfter));
+
+      // Tính số tiền đã rút (10%)
+      const withdrawnAmount = balanceBefore.sub(balanceAfter);
+      console.log("Withdrawn amount (10%):", ethers.utils.formatEther(withdrawnAmount));
+
+      // Cập nhật lại balances
+      await fetchBalances();
       
       toast({
         title: "Withdrawal successful!",
+        description: `Withdrawn ${ethers.utils.formatEther(withdrawnAmount)} ETH (10% of contract balance)`,
         status: "success",
         duration: 3000,
         isClosable: true,
@@ -208,15 +245,35 @@ const OwnerDeploy: React.FC<OwnerDeployProps> = ({ address }) => {
     }
   };
 
+  const handleWithdrawClick = () => {
+    if (currentPhase !== Phase.Expiry) {
+        toast({
+            title: "Cannot withdraw",
+            description: "Withdrawal is only available in Expiry phase",
+            status: "warning",
+            duration: 3000,
+            isClosable: true,
+        });
+        return;
+    }
+    
+    if (parseFloat(contractBalance) <= 0) {
+        toast({
+            title: "Cannot withdraw",
+            description: "No balance available to withdraw",
+            status: "warning",
+            duration: 3000,
+            isClosable: true,
+        });
+        return;
+    }
+
+    withdraw();
+  };
+
   const shortenAddress = (address: string) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
-
-  useEffect(() => {
-    if (contractAddress) {
-      fetchContractBalance();
-    }
-  }, [contractAddress]);
 
   // Sử dụng khi cần
   const factoryAddress = FACTORY_ADDRESS;
@@ -239,22 +296,54 @@ const OwnerDeploy: React.FC<OwnerDeployProps> = ({ address }) => {
 
       <Flex direction="column" alignItems="center" p={6}>
         <VStack width={{ base: '95%', md: '1000px' }} spacing={8} align="stretch">
-          {/* Wallet Info */}
-          <HStack spacing={6} justify="space-between" width="100%" fontSize="xl">
+          {/* Wallet Info - Updated UI */}
+          <HStack 
+            spacing={6} 
+            justify="space-between" 
+            width="100%" 
+            fontSize="xl"
+            bg="gray.900"
+            p={4}
+            borderRadius="xl"
+            border="1px solid"
+            borderColor="gray.700"
+          >
+            {/* Wallet Address */}
             <HStack>
               <Icon as={FaWallet} w={6} h={6} color="#FEDF56" />
-              <Text>{shortenAddress(walletAddress)}</Text>
+              <VStack align="start" spacing={1}>
+                <Text color="gray.400" fontSize="sm">Wallet Address</Text>
+                <Text color="#FEDF56">{shortenAddress(walletAddress)}</Text>
+              </VStack>
             </HStack>
+
+            {/* Wallet Balance */}
             <HStack>
               <Icon as={FaEthereum} w={6} h={6} color="#FEDF56" />
-              <Text>{contractBalance} ETH</Text>
+              <VStack align="start" spacing={1}>
+                <Text color="gray.400" fontSize="sm">Wallet Balance</Text>
+                <Text color="#FEDF56">{parseFloat(balance).toFixed(4)} ETH</Text>
+              </VStack>
             </HStack>
+
+            {/* Contract Balance */}
+            <HStack>
+              <Icon as={FaEthereum} w={6} h={6} color="#00FF00" />
+              <VStack align="start" spacing={1}>
+                <Text color="gray.400" fontSize="sm">Contract Balance</Text>
+                <Text color="#00FF00">{contractBalance} ETH</Text>
+              </VStack>
+            </HStack>
+
+            {/* Withdraw Button */}
             <Button 
-              onClick={withdraw}
+              onClick={handleWithdrawClick}
               size="lg"
               colorScheme="yellow" 
               variant="outline"
               fontSize="xl"
+              isDisabled={parseFloat(contractBalance) <= 0 || currentPhase !== Phase.Expiry}
+              title={currentPhase !== Phase.Expiry ? "Withdrawal available only in Expiry phase" : ""}
             >
               Withdraw
             </Button>
