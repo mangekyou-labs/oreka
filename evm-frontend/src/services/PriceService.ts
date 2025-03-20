@@ -18,22 +18,41 @@ export class PriceService {
     return PriceService.instance;
   }
 
-  public async fetchPrice(symbol: string = 'BTCUSDT'): Promise<PriceData> {
+  public async fetchPrice(symbol: string = 'BTC-USD'): Promise<PriceData> {
     try {
-      const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
+      // Chuyển đổi định dạng symbol từ BTCUSD sang BTC-USD nếu cần
+      const formattedSymbol = symbol.includes('-') ? symbol : `${symbol.substring(0, 3)}-${symbol.substring(3)}`;
+      
+      // Sử dụng API Coinbase để lấy giá
+      const response = await fetch(`https://api.coinbase.com/v2/prices/${formattedSymbol}/spot`);
       const data = await response.json();
+      
       return {
-        price: parseFloat(data.price),
-        symbol: data.symbol,
+        price: parseFloat(data.data.amount),
+        symbol: symbol,
         timestamp: Date.now()
       };
     } catch (error) {
-      console.error('Error fetching price:', error);
-      throw error;
+      console.error('Error fetching price from Coinbase:', error);
+      
+      // Fallback nếu API Coinbase không hoạt động
+      try {
+        const binanceSymbol = symbol.replace('-', '');
+        const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${binanceSymbol}`);
+        const data = await response.json();
+        return {
+          price: parseFloat(data.price),
+          symbol: symbol,
+          timestamp: Date.now()
+        };
+      } catch (backupError) {
+        console.error('Error fetching backup price from Binance:', backupError);
+        throw error;
+      }
     }
   }
 
-  public subscribeToPriceUpdates(callback: (data: PriceData) => void, symbol: string = 'BTCUSDT', interval: number = 5000) {
+  public subscribeToPriceUpdates(callback: (data: PriceData) => void, symbol: string = 'BTC-USD', interval: number = 5000) {
     this.priceSubscribers.push(callback);
 
     if (!this.currentInterval) {
@@ -60,10 +79,12 @@ export class PriceService {
     }
   }
 
-  public async fetchKlines(symbol: string = 'BTCUSDT', interval: string = '1m', limit: number = 100): Promise<any[]> {
+  public async fetchKlines(symbol: string = 'BTC-USD', interval: string = '1m', limit: number = 100): Promise<any[]> {
     try {
+      // Coinbase không có API klines tương tự Binance, nên phải dùng Binance cho tính năng này
+      const binanceSymbol = symbol.replace('-', '');
       const response = await fetch(
-        `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
+        `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}`
       );
       const data = await response.json();
       return data.map((item: any[]) => ({

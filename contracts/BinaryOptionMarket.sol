@@ -33,7 +33,7 @@ contract BinaryOptionMarket is Ownable {
     uint public totalDeposited;
     bool public resolved;
     Phase public currentPhase;
-    uint public feePercentage = 10; // 10% fee on rewards
+    uint public feePercentage;
     mapping(address => uint) public longBids;
     mapping(address => uint) public shortBids;
     mapping(address => bool) public hasClaimed;
@@ -60,13 +60,17 @@ contract BinaryOptionMarket is Ownable {
         uint256 _strikePrice, 
         address _owner,
         string memory _tradingPair,
-        uint _maturityTime
+        uint _maturityTime,
+        uint _feePercentage
     ) Ownable(_owner) {
         require(_maturityTime > block.timestamp, "Maturity time must be in the future");
+        require(_feePercentage >= 1 && _feePercentage <= 200, "Fee must be between 0.1% and 20%");
+        
         strikePrice = _strikePrice;
         tradingPair = _tradingPair;
         maturityTime = _maturityTime;
         deployTime = block.timestamp;
+        feePercentage = _feePercentage;
         currentPhase = Phase.Trading;
     }
 
@@ -140,7 +144,7 @@ contract BinaryOptionMarket is Ownable {
         require(userDeposit > 0, "No deposits on winning side");
 
         uint reward = (userDeposit * totalDeposited) / totalWinningDeposits;
-        uint fee = (reward * feePercentage) / 100;
+        uint fee = (reward * feePercentage) / 1000;
         uint finalReward = reward - fee;
 
         hasClaimed[msg.sender] = true;

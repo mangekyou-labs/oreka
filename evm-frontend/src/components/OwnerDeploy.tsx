@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ethers } from 'ethers';
 import { Box, Button, VStack, useToast, HStack, Text, Flex, Icon, Spacer, Circle } from '@chakra-ui/react';
 import { FaWallet, FaEthereum, FaChevronLeft } from 'react-icons/fa';
-import BinaryOptionMarket from '../../../out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
+import BinaryOptionMarket from '../../../forgeout/out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
 import { fetchMarketDetails } from './Customer';
 import { FACTORY_ADDRESS } from '../config/contracts';
 import { useRouter } from 'next/router';

@@ -8,8 +8,7 @@ import { FaEthereum, FaWallet, FaTrophy, FaChevronLeft, FaShare } from 'react-ic
 import { ethers } from 'ethers';
 import { BigNumber } from 'ethers';
 import { motion, useAnimation } from 'framer-motion';
-import Owner from './Owner';
-import BinaryOptionMarket from '../../../out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
+import BinaryOptionMarket from '../../../forgeout/out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
 import { PriceService, PriceData } from '../services/PriceService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { SiBitcoinsv } from 'react-icons/si';
@@ -604,7 +603,7 @@ useEffect(() => {
     // Reset lại thị trường
     const resetMarket = () => {
       setPositions({ long: 0, short: 0 });
-      setTotalDeposited(0);
+        setTotalDeposited(0); 
       setStrikePrice('0');
       setFinalPrice('0');
       setCurrentPhase(Phase.Bidding);
@@ -665,26 +664,26 @@ useEffect(() => {
         gasLimit: 500000
       });
       await tx.wait();
-      
-      toast({
+
+        toast({
         title: "Market expired successfully",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
+          status: "success",
+          duration: 3000,
+          isClosable: true,
+        });
 
       // Refresh market details
       await fetchMarketDetails();
     } catch (error: any) {
       console.error("Error expiring market:", error);
-      toast({
+        toast({
         title: "Failed to expire market",
         description: error.message || "An unexpected error occurred",
-        status: "error",
+          status: "error",
         duration: 5000,
-        isClosable: true,
-      });
-    }
+          isClosable: true,
+        });
+      }
   };
 
   useEffect(() => {
@@ -843,7 +842,7 @@ useEffect(() => {
       ]);
 
       await refreshBalance();
-      setShowClaimButton(false);
+          setShowClaimButton(false);
       setReward(0);
 
       toast({
@@ -892,7 +891,7 @@ useEffect(() => {
         longAmount: event.args.longAmount,
         shortAmount: event.args.shortAmount
       }));
-    } catch (error) {
+      } catch (error) {
       console.error("Error fetching position history:", error);
       return [];
     }
@@ -918,7 +917,7 @@ useEffect(() => {
   };
 
   // Sửa lại useEffect xử lý position history
-  useEffect(() => {
+useEffect(() => {
     if (!contract) return;
 
     const initializePositionData = async () => {

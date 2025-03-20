@@ -8,12 +8,11 @@ import { FaEthereum, FaWallet, FaTrophy } from 'react-icons/fa';
 import { TbCalendarTime } from 'react-icons/tb';
 import { SiBitcoinsv } from "react-icons/si";
 import { FaCoins } from "react-icons/fa";
-import Factory from '../../../out/Factory.sol/Factory.json';
+import Factory from '../../../forgeout/out/Factory.sol/Factory.json';
 import { useToast } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
-import fs from 'fs'; // Import fs để đọc file
 import { FACTORY_ADDRESS } from '../config/contracts';
-import BinaryOptionMarket from '../../../out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
+import BinaryOptionMarket from '../../../forgeout/out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
 import { getContractTradingPair } from '../config/tradingPairs';
 import { useAuth } from '../context/AuthContext';
 
@@ -76,13 +75,19 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
     //const [FactoryAddress, setFactoryAddress] = useState<string>('');
     const FactoryAddress = FACTORY_ADDRESS;
     
-//   useEffect(() => {
-//     // Đọc địa chỉ từ file JSON
-//     const data = fs.readFileSync('deployed_address.json', 'utf8');
-//     const json = JSON.parse(data);
-//     setFactoryAddress(json.FactoryAddress);
-// }, []);
-    // Tính toán tổng số trang
+    const [currentTab, setCurrentTab] = useState<string>('All Markets');
+
+    // Logic for filtering contracts based on the selected tab
+    const filteredContracts = currentContracts.filter(contract => {
+        if (currentTab === 'All Markets') return true;
+        return contract.tradingPair === currentTab;
+    });
+
+    useEffect(() => {
+        // Fetch deployed contracts logic here
+    }, [ownerAddress, page]);
+
+
     const totalPages = Math.ceil(deployedContracts.length / contractsPerPage);
     const handlePageChange = (page: number) => {
         if (page !== currentPage) { // Chỉ thay đổi nếu page khác với currentPage hiện tại
@@ -262,6 +267,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
     return (
         <Box bg="white" minH="100vh">
             <Box p={6}>
+                
                 {loading ? (
                     <Text color="gray.600">Loading...</Text>
                 ) : deployedContracts.length > 0 ? (
@@ -270,7 +276,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                         spacing={4}
                         width="100%"
                     >
-                        {currentContracts.map(({ address, createDate, longAmount, shortAmount, strikePrice, phase, maturityTime, tradingPair }, index) => (
+                        {filteredContracts.map(({ address, createDate, longAmount, shortAmount, strikePrice, phase, maturityTime, tradingPair }, index) => (
                             <Box
                                 key={index}
                                 p={4}
