@@ -8,7 +8,7 @@ import { FaEthereum, FaWallet, FaTrophy, FaChevronLeft, FaShare } from 'react-ic
 import { ethers } from 'ethers';
 import { BigNumber } from 'ethers';
 import { motion, useAnimation } from 'framer-motion';
-import BinaryOptionMarket from '../../../forgeout/out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
+import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketABI.json';
 import { PriceService, PriceData } from '../services/PriceService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { SiBitcoinsv } from 'react-icons/si';

@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { ethers } from 'ethers';
 import { Box, Button, Input, VStack, useToast, HStack, Icon, SimpleGrid, Text, Select, Divider, Progress, InputGroup, InputRightAddon, Spinner, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip } from '@chakra-ui/react';
 import { FaEthereum, FaWallet, FaArrowUp, FaArrowDown } from 'react-icons/fa';
-import BinaryOptionMarket from '../../../forgeout/out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
-import Factory from '../../../forgeout/out/Factory.sol/Factory.json';  // ABI của Factory contract
+import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketABI.json';
+import Factory from '../contracts/abis/FactoryABI.json';  // ABI của Factory contract
 import ListAddressOwner from './ListAddressOwner'; // Import ListAddressOwner
 import { fetchMarketDetails } from './Customer';
 import { FACTORY_ADDRESS } from '../config/contracts';

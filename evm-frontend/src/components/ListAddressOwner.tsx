@@ -1,18 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { ethers } from 'ethers';
-import { Box, Button, HStack, Icon, Text, VStack, SimpleGrid, Flex } from '@chakra-ui/react';
+import { Box, Button, HStack, Icon, Text, VStack, SimpleGrid, Flex, Input, Select, Divider, Progress, InputGroup, InputRightAddon, Spinner, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip, Spacer } from '@chakra-ui/react';
 import { CheckIcon, InfoIcon, ExternalLinkIcon, TimeIcon, InfoOutlineIcon } from '@chakra-ui/icons'; // Import icons
 import { FaCalendarDay, FaPlayCircle, FaClock, FaCheckCircle, FaListAlt } from 'react-icons/fa'; // Import các biểu tượng
 import { IoWalletOutline } from "react-icons/io5";
-import { FaEthereum, FaWallet, FaTrophy } from 'react-icons/fa';
+import { FaEthereum, FaWallet, FaTrophy, FaArrowUp, FaArrowDown } from 'react-icons/fa';
 import { TbCalendarTime } from 'react-icons/tb';
 import { SiBitcoinsv } from "react-icons/si";
 import { FaCoins } from "react-icons/fa";
-import Factory from '../../../forgeout/out/Factory.sol/Factory.json';
+import Factory from '../contracts/abis/FactoryABI.json';
 import { useToast } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
 import { FACTORY_ADDRESS } from '../config/contracts';
-import BinaryOptionMarket from '../../../forgeout/out/BinaryOptionMarket.sol/BinaryOptionMarket.json';
+import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketABI.json';
 import { getContractTradingPair } from '../config/tradingPairs';
 import { useAuth } from '../context/AuthContext';
 
@@ -75,13 +75,29 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
     //const [FactoryAddress, setFactoryAddress] = useState<string>('');
     const FactoryAddress = FACTORY_ADDRESS;
     
+    // Cập nhật state cho tab hiện tại
     const [currentTab, setCurrentTab] = useState<string>('All Markets');
 
     // Logic for filtering contracts based on the selected tab
     const filteredContracts = currentContracts.filter(contract => {
         if (currentTab === 'All Markets') return true;
-        return contract.tradingPair === currentTab;
+        if (currentTab === 'Most recent') return true; // Sẽ sắp xếp sau, không cần lọc
+        if (currentTab === 'Quests') return contract.phase === Phase.Trading || contract.phase === Phase.Bidding;
+        if (currentTab === 'Results') return contract.phase === Phase.Maturity || contract.phase === Phase.Expiry;
+        return contract.tradingPair === currentTab; // Giữ lại logic lọc theo tradingPair
     });
+
+    // Sắp xếp contracts nếu tab là Most recent
+    useEffect(() => {
+        if (currentTab === 'Most recent') {
+            // Tạo bản sao của mảng để không ảnh hưởng đến state gốc
+            const sortedContracts = [...currentContracts].sort((a, b) => {
+                // Sắp xếp theo thời gian tạo giảm dần (mới nhất lên đầu)
+                return new Date(b.createDate).getTime() - new Date(a.createDate).getTime();
+            });
+            setCurrentContracts(sortedContracts);
+        }
+    }, [currentTab]);
 
     useEffect(() => {
         // Fetch deployed contracts logic here
@@ -266,7 +282,125 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
 
     return (
         <Box bg="white" minH="100vh">
+            {/* Header với wallet connection */}
+            <Flex 
+                as="header" 
+                align="center" 
+                justify="space-between" 
+                p={4} 
+                bg="white" 
+                borderBottom="1px" 
+                borderColor="gray.200"
+                position="sticky"
+                top="0"
+                zIndex="sticky"
+                boxShadow="sm"
+            >
+                <Text fontSize="xl" fontWeight="bold" color="gray.800">
+                    Binary Options Market
+                </Text>
+                
+                <Spacer />
+                
+                {isConnected ? (
+                    <HStack spacing={4}>
+                        <HStack 
+                            p={2} 
+                            bg="gray.50" 
+                            borderRadius="md" 
+                            borderWidth="1px" 
+                            borderColor="gray.200"
+                        >
+                            <Icon as={FaEthereum} color="blue.500" />
+                            <Text color="gray.700" fontWeight="medium">
+                                {parseFloat(balance).toFixed(4)} ETH
+                            </Text>
+                        </HStack>
+                        
+                        <Button
+                            leftIcon={<FaWallet />}
+                            colorScheme="blue"
+                            variant="outline"
+                            size="md"
+                        >
+                            {shortenAddress(walletAddress)}
+                        </Button>
+                    </HStack>
+                ) : (
+                    <Button
+                        leftIcon={<FaWallet />}
+                        colorScheme="blue"
+                        size="md"
+                        onClick={connectWallet}
+                    >
+                        Connect Wallet
+                    </Button>
+                )}
+            </Flex>
+
             <Box p={6}>
+                {/* Header với các tab */}
+                <Box mb={6}>
+                    
+                    {/* Tab navigation */}
+                    <Flex 
+                        overflowX="auto" 
+                        pb={2} 
+                        mb={4}
+                        css={{
+                            '&::-webkit-scrollbar': {
+                                height: '8px',
+                            },
+                            '&::-webkit-scrollbar-thumb': {
+                                backgroundColor: 'rgba(0,0,0,0.1)',
+                                borderRadius: '4px',
+                            }
+                        }}
+                    >
+                        <HStack spacing={4}>
+                            {['All Markets', 'Most recent', 'Quests', 'Results', 'BTC/USD', 'ETH/USD', 'ICP/USD'].map((tab) => (
+                                <Button
+                                    key={tab}
+                                    size="md"
+                                    variant={currentTab === tab ? "solid" : "ghost"}
+                                    colorScheme={currentTab === tab ? "blue" : "gray"}
+                                    onClick={() => setCurrentTab(tab)}
+                                    minW="120px"
+                                    leftIcon={
+                                        tab === 'All Markets' ? <FaListAlt /> :
+                                        tab === 'Most recent' ? <FaCalendarDay /> :
+                                        tab === 'Quests' ? <FaPlayCircle /> :
+                                        tab === 'Results' ? <FaTrophy /> :
+                                        tab === 'BTC/USD' ? <SiBitcoinsv /> :
+                                        tab === 'ETH/USD' ? <FaEthereum /> :
+                                        <FaCoins />
+                                    }
+                                >
+                                    {tab}
+                                </Button>
+                            ))}
+                        </HStack>
+                    </Flex>
+                    
+                    {/* Tab description */}
+                    <Box p={4} bg="gray.50" borderRadius="md" mb={4}>
+                        {currentTab === 'All Markets' && (
+                            <Text color="gray.600">Showing all available markets</Text>
+                        )}
+                        {currentTab === 'Most recent' && (
+                            <Text color="gray.600">Showing markets sorted by creation date (newest first)</Text>
+                        )}
+                        {currentTab === 'Quests' && (
+                            <Text color="gray.600">Showing active markets in Trading or Bidding phase</Text>
+                        )}
+                        {currentTab === 'Results' && (
+                            <Text color="gray.600">Showing markets in Maturity or Expiry phase</Text>
+                        )}
+                        {['BTC/USD', 'ETH/USD', 'ICP/USD'].includes(currentTab) && (
+                            <Text color="gray.600">Showing {currentTab} markets only</Text>
+                        )}
+                    </Box>
+                </Box>
                 
                 {loading ? (
                     <Text color="gray.600">Loading...</Text>
