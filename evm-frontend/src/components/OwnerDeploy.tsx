@@ -22,6 +22,8 @@ const OwnerDeploy: React.FC<OwnerDeployProps> = ({ address }) => {
   const [currentPhase, setCurrentPhase] = useState<Phase>(Phase.Trading);
   const toast = useToast();
   const router = useRouter();
+  const [owner, setOwner] = useState<string>('');
+  const [isOwner, setIsOwner] = useState<boolean>(false);
 
   // Thêm useEffect để tự động kết nối khi component mount
   useEffect(() => {
@@ -108,6 +110,45 @@ const OwnerDeploy: React.FC<OwnerDeployProps> = ({ address }) => {
       fetchCurrentPhase();
     }
   }, [contractAddress]);
+
+  // Thêm hàm để kiểm tra owner
+  const checkOwner = async () => {
+    try {
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const contract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, provider);
+      const contractOwner = await contract.owner();
+      setOwner(contractOwner);
+      
+      // Kiểm tra xem người dùng hiện tại có phải là owner không
+      if (isConnected && walletAddress) {
+        setIsOwner(walletAddress.toLowerCase() === contractOwner.toLowerCase());
+      } else {
+        setIsOwner(false);
+      }
+      
+      // Nếu không phải owner, chuyển hướng về trang danh sách
+      if (isConnected && walletAddress && walletAddress.toLowerCase() !== contractOwner.toLowerCase()) {
+        toast({
+          title: "Access denied",
+          description: "You are not the owner of this contract",
+          status: "error",
+          duration: 5000,
+          isClosable: true,
+        });
+        router.push('/listaddress');
+      }
+    } catch (error) {
+      console.error("Error checking owner:", error);
+      router.push('/listaddress');
+    }
+  };
+
+  // Cập nhật useEffect để gọi checkOwner khi component mount và khi contractAddress thay đổi
+  useEffect(() => {
+    if (contractAddress && isConnected) {
+      checkOwner();
+    }
+  }, [contractAddress, isConnected, walletAddress]);
 
   // Đổi tên và logic của hàm startTrading thành startBidding
   const startBidding = async () => {
@@ -442,7 +483,7 @@ const OwnerDeploy: React.FC<OwnerDeployProps> = ({ address }) => {
               height="70px"
               fontSize="2xl"
               transition="all 0.2s"
-              isDisabled={currentPhase !== Phase.Trading}
+              isDisabled={currentPhase !== Phase.Trading || !isOwner}
             >
               Start Bidding
             </Button>

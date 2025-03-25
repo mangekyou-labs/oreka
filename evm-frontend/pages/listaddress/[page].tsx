@@ -1,26 +1,42 @@
 import { useRouter } from 'next/router';
 import ListAddressOwner from '../../src/components/ListAddressOwner';
+import { useAuth } from '../../src/context/AuthContext';
+import { useEffect, useState } from 'react';
 
-
-interface ListAddressOwnerProps {
-    ownerAddress: string;
-    page: number;  // Add this line to include the page prop
-    // ... other props if any ...
-}
 const ListAddressPage = () => {
     const router = useRouter();
-    const { page } = router.query;  // Lấy thông tin trang từ URL
-    if (!page) {
+    const { page } = router.query;
+    const { isConnected, walletAddress, connectWallet } = useAuth();
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        const autoConnect = async () => {
+            if (!isConnected) {
+                try {
+                    await connectWallet();
+                } catch (error) {
+                    console.error("Auto connect failed:", error);
+                } finally {
+                    setIsLoading(false);
+                }
+            } else {
+                setIsLoading(false);
+            }
+        };
+        autoConnect();
+    }, []);
+
+    if (isLoading || !page) {
         return <div>Loading...</div>;
     }
 
-    // Nếu page không xác định, hãy điều hướng đến trang đầu tiên
-    //const pageNumber = parseInt(page as string) || 1;
     const pageNumber = parseInt(router.query.page as string, 10);
     const finalPage = isNaN(pageNumber) ? 1 : pageNumber;
+
+    // Truyền walletAddress vào component để hiển thị các hợp đồng của người dùng hiện tại
     return (
         <div>
-            <ListAddressOwner ownerAddress="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" page={finalPage} />
+            <ListAddressOwner ownerAddress={walletAddress} page={finalPage} />
         </div>
     );
 };

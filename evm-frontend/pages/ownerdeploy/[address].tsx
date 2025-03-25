@@ -1,11 +1,12 @@
 import React, { useEffect } from 'react';
-import Owner from '../src/components/Owner';
-import { useAuth } from '../src/context/AuthContext';
 import { useRouter } from 'next/router';
+import OwnerDeploy from '../../src/components/OwnerDeploy';
+import { useAuth } from '../../src/context/AuthContext';
 
-const OwnerPage = () => {
-  const { isConnected, walletAddress, connectWallet } = useAuth();
+const OwnerDeployPage: React.FC = () => {
   const router = useRouter();
+  const { address } = router.query;
+  const { isConnected, walletAddress, connectWallet } = useAuth();
 
   useEffect(() => {
     const autoConnect = async () => {
@@ -21,11 +22,13 @@ const OwnerPage = () => {
     autoConnect();
   }, []);
 
-  if (!isConnected) {
-    return <div>Connecting wallet...</div>;
+  if (!isConnected || !address) {
+    return <div>Loading...</div>;
   }
 
-  return <Owner address={walletAddress} />;
+  return (
+    <OwnerDeploy address={address as string} />
+  );
 };
 
-export default OwnerPage;
+export default OwnerDeployPage; 

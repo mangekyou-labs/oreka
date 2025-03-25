@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ethers } from 'ethers';
-import { Box, Button, Input, VStack, useToast, HStack, Icon, SimpleGrid, Text, Select, Divider, Progress, InputGroup, InputRightAddon, Spinner, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip } from '@chakra-ui/react';
-import { FaEthereum, FaWallet, FaArrowUp, FaArrowDown } from 'react-icons/fa';
+import { Box, Button, Input, VStack, useToast, HStack, Icon, SimpleGrid, Text, Select, Divider, Progress, InputGroup, InputRightAddon, Spinner, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip, InputRightElement } from '@chakra-ui/react';
+import { FaEthereum, FaWallet, FaArrowUp, FaArrowDown, FaClock } from 'react-icons/fa';
 import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketABI.json';
 import Factory from '../contracts/abis/FactoryABI.json';  // ABI của Factory contract
 import ListAddressOwner from './ListAddressOwner'; // Import ListAddressOwner
@@ -11,6 +11,7 @@ import { setContractTradingPair } from '../config/tradingPairs';
 import { useAuth } from '../context/AuthContext';
 import { UnorderedList, ListItem } from '@chakra-ui/react';
 import { PriceService } from '../services/PriceService';
+import { format, toZonedTime } from 'date-fns-tz';
 
 interface OwnerProps {
   address: string;
@@ -34,6 +35,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   const [selectedCoin, setSelectedCoin] = useState<Coin | null>(null);
   const [maturityDate, setMaturityDate] = useState('');
   const [maturityTime, setMaturityTime] = useState('');
+  const [currentEasternTime, setCurrentEasternTime] = useState('');
   
   // Thêm state cho gas price và estimated fee
   const [gasPrice, setGasPrice] = useState('78');
@@ -264,6 +266,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     setStrikePrice('');
     setMaturityDate('');
     setMaturityTime('');
+    setFeePercentage('1');
+    setDaysToExercise('Not set');
+    setCurrentPrice(null);
+    setPriceChangePercent(0);
   };
 
   // Thêm hàm để ước tính gas
@@ -356,8 +362,8 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         return;
       }
 
-      // Convert maturityDate và maturityTime thành timestamp
-      const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
+      // Lấy timestamp theo Eastern Time
+      const maturityTimestamp = createMaturityTimestamp();
       
       // Kiểm tra xem maturityTimestamp có lớn hơn thời gian hiện tại không
       if (maturityTimestamp <= Math.floor(Date.now() / 1000)) {
@@ -746,6 +752,75 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     }
   }, [selectedCoin, strikePrice]);
 
+  // Thêm useEffect để thiết lập giá trị mặc định cho maturityDate và maturityTime
+  useEffect(() => {
+    // Lấy giờ Eastern Time hiện tại
+    const now = new Date();
+    const etNow = toZonedTime(now, 'America/New_York');
+    
+    // Set default là ngày mai
+    const tomorrow = new Date(etNow);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    // Thiết lập giá trị mặc định
+    setMaturityDate(format(tomorrow, 'yyyy-MM-dd'));
+    setMaturityTime(format(etNow, 'HH:mm'));
+    
+    // Cập nhật thời gian hiện tại
+    setCurrentEasternTime(format(etNow, 'HH:mm'));
+  }, []);
+
+  // Cập nhật hàm createMaturityTimestamp để đảm bảo sử dụng ET
+  const createMaturityTimestamp = () => {
+    if (!maturityDate || !maturityTime) return 0;
+    
+    try {
+      // Tạo đối tượng Date từ dữ liệu nhập vào (đã là Eastern Time)
+      const [hours, minutes] = maturityTime.split(':').map(Number);
+      const dateObj = new Date(`${maturityDate}T00:00:00`);
+      dateObj.setHours(hours, minutes, 0, 0);
+      
+      // Trả về timestamp (giây) - KHÔNG chuyển đổi múi giờ
+      return Math.floor(dateObj.getTime() / 1000);
+    } catch (error) {
+      console.error('Error creating maturity timestamp:', error);
+      return 0;
+    }
+  };
+
+  // Cập nhật formatMaturityDate để luôn hiển thị Eastern Time
+  const formatMaturityDate = (maturityTime: any) => {
+    try {
+      const timestamp = Number(maturityTime);
+      if (isNaN(timestamp) || timestamp === 0) return "TBD";
+      
+      // Tạo đối tượng Date từ timestamp (giây)
+      const date = new Date(timestamp * 1000);
+      
+      // Định dạng theo Eastern Time
+      return date.toString() === "Invalid Date" 
+        ? "TBD" 
+        : format(toZonedTime(date, 'America/New_York'), 'yyyy-MM-dd HH:mm:ss (Eastern Time)');
+    } catch (error) {
+      console.error("Error formatting maturity date:", error);
+      return "TBD";
+    }
+  };
+
+  // Chuyển đổi giữa UTC và Eastern Time khi người dùng chọn thời gian
+  const convertToEasternTime = (utcTime: string) => {
+    if (!utcTime) return '';
+    // Không cần chuyển đổi vì input sẽ trực tiếp nhận giờ Eastern
+    return utcTime;
+  };
+
+  const convertToUTC = (easternTime: string) => {
+    if (!easternTime) return '';
+    // Chuyển đổi từ Eastern sang UTC khi lưu vào smart contract (nếu cần)
+    // Đây chỉ là ví dụ, cần điều chỉnh tùy thuộc vào logic ứng dụng
+    return easternTime;
+  };
+
   return (
     <Box bg="#0a1647" minH="100vh" color="white">
       {/* Header - Wallet Info */}
@@ -917,23 +992,38 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                       />
                     </Box>
                     <Box flex={1}>
-                      <Text color="white" mb={4} fontWeight="bold">TIME (UTC):</Text>
-                      <Input
-                        type="time"
-                        value={maturityTime}
-                        onChange={(e) => setMaturityTime(e.target.value)}
-                        bg="rgba(255,255,255,0.1)"
-                        border="1px solid rgba(255,255,255,0.2)"
-                        color="white"
-                        borderRadius="xl"
-                        h="60px"
-                        _hover={{
-                          borderColor: "white",
-                        }}
-                        _focus={{
-                          borderColor: "white",
-                        }}
-                      />
+                      <Text color="white" mb={4} fontWeight="bold">TIME (Eastern Time):</Text>
+                      <InputGroup>
+                        <Input
+                          type="time"
+                          value={maturityTime}
+                          onChange={(e) => setMaturityTime(e.target.value)}
+                          bg="rgba(255,255,255,0.1)"
+                          border="1px solid rgba(255,255,255,0.2)"
+                          color="white"
+                          borderRadius="xl"
+                          h="60px"
+                          _hover={{
+                            borderColor: "white",
+                          }}
+                          _focus={{
+                            borderColor: "white",
+                          }}
+                        />
+                        <InputRightElement h="60px" pr={2}>
+                          <Icon 
+                            as={FaClock} 
+                            color="gray.400" 
+                            cursor="pointer"
+                            onClick={() => {
+                              // Cập nhật lại giờ Eastern Time hiện tại khi click vào icon
+                              const now = new Date();
+                              const etNow = toZonedTime(now, 'America/New_York');
+                              setMaturityTime(format(etNow, 'HH:mm'));
+                            }}
+                          />
+                        </InputRightElement>
+                      </InputGroup>
                     </Box>
                   </HStack>
 
@@ -1129,7 +1219,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
                       <HStack justify="space-between">
                         <Text color="gray.400">Maturity date</Text>
-                        <Text color="white">{maturityDate || 'Not set'}</Text>
+                        <Text color="white">{maturityDate || 'Not set'} {maturityTime ? `${maturityTime} (Eastern Time)` : ''}</Text>
                       </HStack>
 
                       <HStack justify="space-between">

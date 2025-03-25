@@ -16,6 +16,8 @@ import { useRouter } from 'next/router'; // Thêm import này
 import { getContractTradingPair, getChartSymbol } from '../config/tradingPairs';
 import { useAuth } from '../context/AuthContext';
 import MarketCharts from './charts/MarketCharts';
+import { toZonedTime } from 'date-fns-tz';
+import { format } from 'date-fns';
 
 enum Side { Long, Short }
 enum Phase {Trading,Bidding, Maturity, Expiry }
@@ -61,6 +63,10 @@ interface BidEvent {
   shortAmount: BigNumber;
 }
 
+interface CustomerProps {
+  contractAddress?: string;
+}
+
 export const fetchMarketDetails = async (contract: ethers.Contract) => {
   try {
     const phase = await contract.currentPhase();
@@ -90,7 +96,12 @@ const getProviderAndSigner = async () => {
   return { provider, signer };
 };
 
-function Customer() {
+// Thêm hàm helper để chuyển đổi UTC sang múi giờ Eastern
+const toETTime = (utcTimestamp) => {
+  return toZonedTime(new Date(utcTimestamp * 1000), 'America/New_York');
+};
+
+function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const { isConnected, walletAddress, balance, connectWallet, refreshBalance } = useAuth();
   const [selectedSide, setSelectedSide] = useState<Side | null>(null);
   const [contractBalance, setContractBalance] = useState(0);
@@ -104,7 +115,7 @@ function Customer() {
   const [reward, setReward] = useState(0); // Số phần thưởng khi người chơi thắng
   const [contract, setContract] = useState<ethers.Contract | null>(null);
   const [positions, setPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
-  const [contractAddress, setContractAddress] = useState('');
+  const [contractAddress, setContractAddress] = useState(initialContractAddress || '');
   const [currentPrice, setCurrentPrice] = useState<number>(0);
   const [chartData, setChartData] = useState<any[]>([]);
   const [canResolve, setCanResolve] = useState(false);
@@ -123,6 +134,9 @@ function Customer() {
   const [resolveTime, setResolveTime] = useState<number>(0);
   const [positionData, setPositionData] = useState<PositionData[]>([]);
   const [userPositions, setUserPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
+  const [isOwner, setIsOwner] = useState(false);
+  const [isResolving, setIsResolving] = useState(false);
+  const [isExpiring, setIsExpiring] = useState(false);
 
   // Thêm mapping từ contract address sang symbol Binance
   const coinSymbols: CoinSymbol = {
@@ -141,14 +155,20 @@ function Customer() {
   const toast = useToast();
   const priceControls = useAnimation();
   const router = useRouter(); // Thêm hook useRouter
-  //const contractAddress = "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e";  // Địa chỉ contract của bạn
+
   useEffect(() => {
-    // Đọc địa chỉ từ localStorage khi component mount
-    const savedAddress = localStorage.getItem('selectedContractAddress');
-    if (savedAddress) {
+    // Nếu có initialContractAddress từ props, sử dụng nó
+    if (initialContractAddress) {
+      setContractAddress(initialContractAddress);
+    } 
+    // Nếu không, thử đọc từ localStorage
+    else {
+      const savedAddress = localStorage.getItem('selectedContractAddress');
+      if (savedAddress) {
         setContractAddress(savedAddress);
+      }
     }
-  }, []);
+  }, [initialContractAddress]);
 
   useEffect(() => {
     return () => {
@@ -655,35 +675,64 @@ useEffect(() => {
   const handleExpireMarket = async () => {
     if (!contract) return;
     try {
-      // Kết nối contract với signer
+      console.log("Attempting to expire market...");
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
       const contractWithSigner = contract.connect(signer);
 
+      // Hiển thị thông báo đang xử lý
+      toast({
+        title: "Expiring market...",
+        description: "Please wait while the transaction is being processed",
+        status: "info",
+        duration: 5000,
+        isClosable: true,
+      });
+
       const tx = await contractWithSigner.expireMarket({
         gasLimit: 500000
       });
+      
+      console.log("Transaction sent:", tx.hash);
+      
+      // Hiển thị thông báo transaction đã được gửi
+      toast({
+        title: "Transaction sent",
+        description: `Transaction hash: ${tx.hash.substring(0, 10)}...`,
+        status: "info",
+        duration: 5000,
+        isClosable: true,
+      });
+      
       await tx.wait();
-
-        toast({
-        title: "Market expired successfully",
-          status: "success",
-          duration: 3000,
-          isClosable: true,
-        });
+      
+      // Hiển thị thông báo thành công
+      toast({
+        title: "Market expired successfully!",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
 
       // Refresh market details
       await fetchMarketDetails();
+      
+      // Cập nhật UI ngay lập tức
+      setCurrentPhase(Phase.Expiry);
+      setCanExpire(false);
+      
+      return true;
     } catch (error: any) {
       console.error("Error expiring market:", error);
-        toast({
+      toast({
         title: "Failed to expire market",
         description: error.message || "An unexpected error occurred",
-          status: "error",
+        status: "error",
         duration: 5000,
-          isClosable: true,
-        });
-      }
+        isClosable: true,
+      });
+      return false;
+    }
   };
 
   useEffect(() => {
@@ -783,35 +832,65 @@ useEffect(() => {
     if (!contract) return;
 
     try {
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
-        const signer = provider.getSigner();
-        const contractWithSigner = contract.connect(signer);
+      console.log("Attempting to resolve market...");
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const signer = provider.getSigner();
+      const contractWithSigner = contract.connect(signer);
 
-        const tx = await contractWithSigner.resolveMarket({
-            gasLimit: 500000
-        });
-        await tx.wait();
+      // Hiển thị thông báo đang xử lý
+      toast({
+        title: "Resolving market...",
+        description: "Please wait while the transaction is being processed",
+        status: "info",
+        duration: 5000,
+        isClosable: true,
+      });
 
-        toast({
-            title: "Market resolved successfully!",
-            status: "success",
-            duration: 3000,
-            isClosable: true,
-        });
+      const tx = await contractWithSigner.resolveMarket({
+        gasLimit: 500000
+      });
+      
+      console.log("Transaction sent:", tx.hash);
+      
+      // Hiển thị thông báo transaction đã được gửi
+      toast({
+        title: "Transaction sent",
+        description: `Transaction hash: ${tx.hash.substring(0, 10)}...`,
+        status: "info",
+        duration: 5000,
+        isClosable: true,
+      });
+      
+      await tx.wait();
+      
+      // Hiển thị thông báo thành công
+      toast({
+        title: "Market resolved successfully!",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
 
-        // Refresh market details
-        await fetchMarketDetails();
+      // Refresh market details
+      await fetchMarketDetails();
+      
+      // Cập nhật UI ngay lập tức
+      setCurrentPhase(Phase.Maturity);
+      setCanResolve(false);
+      
+      return true;
     } catch (error: any) {
-        console.error("Error resolving market:", error);
-        toast({
-            title: "Failed to resolve market",
-            description: error.message || "An unexpected error occurred",
-            status: "error",
-            duration: 5000,
-            isClosable: true,
-        });
+      console.error("Error resolving market:", error);
+      toast({
+        title: "Failed to resolve market",
+        description: error.message || "An unexpected error occurred",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+      return false;
     }
-};
+  };
 
   // Thêm cleanup khi component unmount
   useEffect(() => {
@@ -1054,6 +1133,58 @@ useEffect(() => {
     return () => clearInterval(interval);
   }, [contract]);
 
+  // Thêm hàm kiểm tra quyền hạn
+  const checkPermissions = async () => {
+    if (!contract || !walletAddress) return;
+    
+    try {
+      // Kiểm tra xem contract có hàm owner() không
+      let owner;
+      try {
+        owner = await contract.owner();
+        setIsOwner(owner.toLowerCase() === walletAddress.toLowerCase());
+        console.log("Contract owner:", owner);
+        console.log("Current wallet:", walletAddress);
+        console.log("Is owner:", owner.toLowerCase() === walletAddress.toLowerCase());
+      } catch (e) {
+        console.log("Contract does not have owner() function or error occurred:", e);
+      }
+      
+      // Kiểm tra xem có thể gọi hàm resolveMarket không
+      try {
+        // Chỉ kiểm tra xem hàm có tồn tại không, không thực sự gọi nó
+        const resolveFunction = contract.resolveMarket;
+        console.log("resolveMarket function exists:", !!resolveFunction);
+      } catch (e) {
+        console.log("Error checking resolveMarket function:", e);
+      }
+      
+      // Kiểm tra xem có thể gọi hàm expireMarket không
+      try {
+        // Chỉ kiểm tra xem hàm có tồn tại không, không thực sự gọi nó
+        const expireFunction = contract.expireMarket;
+        console.log("expireMarket function exists:", !!expireFunction);
+      } catch (e) {
+        console.log("Error checking expireMarket function:", e);
+      }
+    } catch (error) {
+      console.error("Error checking permissions:", error);
+    }
+  };
+
+  // Gọi hàm kiểm tra quyền hạn khi component mount
+  useEffect(() => {
+    if (contract && walletAddress) {
+      checkPermissions();
+    }
+  }, [contract, walletAddress]);
+
+  const isMarketEnded = (maturityTime: any, phase: string): boolean => {
+    const currentTime = new Date();
+    const maturityDate = new Date(maturityTime * 1000);
+    return currentTime.getTime() >= maturityDate.getTime();
+  };
+
   return (
     <Box bg="black" minH="100vh">
       {/* Header Section */}
@@ -1077,8 +1208,8 @@ useEffect(() => {
           <VStack align="start" spacing={4} mb={6}>
             <HStack>
               <Icon as={SiBitcoinsv} boxSize={6} color="#FEDF56" />
-              <Text fontSize="2xl" fontWeight="bold" color="#FEDF56">
-                {tradingPair || 'Unknown'}
+              <Text fontSize="2xl" fontWeight="bold" color="#FEDF56" mb={2}>
+                {tradingPair} will reach {strikePrice}$ at {maturityTime ? new Date(maturityTime * 1000).toLocaleDateString() : 'loading...'}
               </Text>
             </HStack>
             <HStack color="gray.400" fontSize="sm">
@@ -1251,9 +1382,8 @@ useEffect(() => {
                 bg="black"
               >
                 <Text color="#FEDF56" fontSize="lg" fontWeight="bold" mb={3}>
-                  Market is Live
+                  Market Timeline
                 </Text>
-
                 <VStack align="stretch" spacing={3} position="relative">
                   {/* Vertical Line */}
                   <Box
@@ -1276,7 +1406,7 @@ useEffect(() => {
                       <Text fontSize="xs" color="gray.500">
                         {deployTime ? new Date(deployTime * 1000).toLocaleString() : 'Pending'}
                       </Text>
-              </VStack>
+                    </VStack>
                   </HStack>
 
                   {/* Bidding Phase */}
@@ -1293,16 +1423,37 @@ useEffect(() => {
                   </HStack>
 
                   {/* Maturity Phase with Resolve Button */}
-                  <HStack spacing={4}>
-                    <Circle size="25px" {...phaseCircleProps(Phase.Maturity)}>3</Circle>
-                    <VStack align="start" spacing={0}>
-                      <Text fontSize="sm" color={currentPhase === Phase.Maturity ? "#FEDF56" : "gray.500"}>
-                        Maturity
-                      </Text>
-                      <Text fontSize="xs" color="gray.500">
-                        {maturityTime ? new Date(maturityTime * 1000).toLocaleString() : 'Pending'}
-                      </Text>
-                    </VStack>
+                  <HStack spacing={4} justify="space-between">
+                    <HStack spacing={4}>
+                      <Circle size="25px" {...phaseCircleProps(Phase.Maturity)}>3</Circle>
+                      <VStack align="start" spacing={0}>
+                        <Text fontSize="sm" color={currentPhase === Phase.Maturity ? "#FEDF56" : "gray.500"}>
+                          Maturity
+                        </Text>
+                        <Text fontSize="xs" color="gray.500">
+                          {maturityTime ? format(toETTime(maturityTime), 'MMM d, yyyy h:mm a') : 'Pending'}
+                        </Text>
+                      </VStack>
+                    </HStack>
+                    
+                    {/* Resolve Button - Hiển thị khi canResolve = true */}
+                    {canResolve && !isResolving && (
+                      <Button
+                        onClick={() => {
+                          setIsResolving(true);
+                          resolve().finally(() => setIsResolving(false));
+                        }}
+                        size="sm"
+                        colorScheme="yellow"
+                        bg="#FEDF56"
+                        color="black"
+                        _hover={{ bg: "#FFE56B" }}
+                        isLoading={isResolving}
+                        loadingText="Resolving"
+                      >
+                        Resolve
+                      </Button>
+                    )}
                   </HStack>
 
                   {/* Expiry Phase with Expire Button */}
@@ -1314,25 +1465,31 @@ useEffect(() => {
                           Expiry
                         </Text>
                         <Text fontSize="xs" color="gray.500">
-                          {maturityTime ? new Date((maturityTime + 30) * 1000).toLocaleString() : 'Pending'}
+                          {maturityTime ? format(toETTime(maturityTime + 30), 'MMM d, yyyy h:mm a') : 'Pending'}
                         </Text>
                       </VStack>
                     </HStack>
-                    {/* Expire Button - Chỉ hiển thị khi canExpire = true */}
-                    {canExpire && (
-          <Button
-                        onClick={handleExpireMarket}
+                    
+                    {/* Expire Button - Hiển thị khi canExpire = true */}
+                    {canExpire && !isExpiring && (
+                      <Button
+                        onClick={() => {
+                          setIsExpiring(true);
+                          handleExpireMarket().finally(() => setIsExpiring(false));
+                        }}
                         size="sm"
                         colorScheme="yellow"
                         bg="#FEDF56"
                         color="black"
                         _hover={{ bg: "#FFE56B" }}
+                        isLoading={isExpiring}
+                        loadingText="Expiring"
                       >
                         Expire
-          </Button>
-        )}
+                      </Button>
+                    )}
                   </HStack>
-      </VStack>
+                </VStack>
               </Box>
 
               {/* Claim Button */}
