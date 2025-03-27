@@ -34,7 +34,9 @@ import ICRC "./ICRC";
 /// @dev All function calls are currently being implemented without side effects
 shared(msg) actor class BinaryOptionMarket(
     initStrikePrice: Float,
-    initEndTimestamp: Nat64
+    initEndTimestamp: Nat64,
+    initTradingPair: Text,
+    initFeePercentage: Nat
 ) = self {
 
     // ============ Type Declarations ============
@@ -149,9 +151,10 @@ shared(msg) actor class BinaryOptionMarket(
     private let OWNER : Principal = msg.caller;
     private let CANISTER_PRINCIPAL : Principal = Principal.fromText("be2us-64aaa-aaaaa-qaabq-cai");
     private let LEDGER_PRINCIPAL : Principal = Principal.fromText("br5f7-7uaaa-aaaaa-qaaca-cai");
-    private let FEE_PERCENTAGE : Nat = 10; // 10% fee on rewards
+    private let FEE_PERCENTAGE : Nat = initFeePercentage; // Customizable fee percentage
     private let GAS : Nat64 = 10_000;
     private let ONE_ICP_IN_E8S : Nat = 100_000_000;
+    private let TRADING_PAIR : Text = initTradingPair; // E.g., "ICP-USD", "BTC-USD", etc.
 
     // ============ State Variables ============
 
@@ -427,11 +430,11 @@ shared(msg) actor class BinaryOptionMarket(
     };
 
     /// @notice Resolves the market using price feed data
-    public shared(msg) func resolveMarket() : async () {
-        assert(msg.caller == OWNER);
+    public shared func resolveMarket() : async () {
+        // Allow anyone to call this function, not just the owner
         assert(currentPhase == #Bidding);
 
-        let price = await get_icp_usd_exchange();
+        let price = await get_price_for_pair();
         let finalPrice = await textToFloat(price);
         
         resolveWithFulfilledData(finalPrice, Time.now());
@@ -648,6 +651,16 @@ shared(msg) actor class BinaryOptionMarket(
         };
     };
 
+    /// @notice Gets the trading pair used by this market
+    public query func getTradingPair() : async Text {
+        TRADING_PAIR
+    };
+    
+    /// @notice Gets the fee percentage used by this market
+    public query func getFeePercentage() : async Nat {
+        FEE_PERCENTAGE
+    };
+
     // ============ Internal Functions ============
 
     /// @notice Resolves market with provided data
@@ -744,13 +757,29 @@ shared(msg) actor class BinaryOptionMarket(
     };
 
     /// @notice Gets ICP/USD exchange rate
-    private func get_icp_usd_exchange() : async Text {
+    private func get_price_for_pair() : async Text {
         let ic : Types.IC = actor ("aaaaa-aa");
         let ONE_MINUTE : Nat64 = 60;
         let start_timestamp : Types.Timestamp = initEndTimestamp - 60;
         let end_timestamp : Types.Timestamp = initEndTimestamp;
         let host : Text = "api.exchange.coinbase.com";
-        let url = "https://" # host # "/products/ICP-USD/candles?start=" 
+        
+        // Extract pair components
+        let pairComponents = Text.split(TRADING_PAIR, #text("-"));
+        let pairIter = pairComponents.next();
+        
+        // Set default pair if not properly formatted
+        let tradingPair = switch (pairIter) {
+            case (?baseCurrency) {
+                switch (pairComponents.next()) {
+                    case (?quoteCurrency) { baseCurrency # "-" # quoteCurrency };
+                    case (null) { "ICP-USD" }; // Default if not properly formatted
+                };
+            };
+            case (null) { "ICP-USD" }; // Default if empty
+        };
+        
+        let url = "https://" # host # "/products/" # tradingPair # "/candles?start=" 
             # Nat64.toText(start_timestamp) # "&end=" 
             # Nat64.toText(end_timestamp) # "&granularity=" 
             # Nat64.toText(ONE_MINUTE);

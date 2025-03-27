@@ -1,5 +1,12 @@
 {
   "canisters": {
+    "factory": {
+      "main": "canisters/factory/src/main.mo",
+      "type": "motoko",
+      "dependencies": [
+        "binary_option_market"
+      ]
+    },
     "binary_option_market": {
       "main": "canisters/binary_option_market/src/main.mo",
       "type": "motoko",
@@ -103,12 +110,6 @@
       "dependencies": [
         "binary_option_market"
       ]
-    }
-  },
-  "defaults": {
-    "build": {
-      "args": "",
-      "packtool": "mops sources"
     }
   },
   "output_env_file": ".env",

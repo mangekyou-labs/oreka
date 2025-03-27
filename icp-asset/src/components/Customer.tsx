@@ -60,7 +60,8 @@ function Customer() {
     const [marketService, setMarketService] = useState<BinaryOptionMarketService | null>(null);
     const [ledgerService, setLedgerService] = useState<IcpLedgerService | null>(null);
     const [shouldCheckRewardClaimability, setShouldCheckRewardClaimability] = useState(false);
-    const [identityPrincipal, setIdentityPrincipal] = useState("")
+    const [identityPrincipal, setIdentityPrincipal] = useState("");
+    const [marketId, setMarketId] = useState<string | null>(null);
 
     const formatTimeRemaining = (timestampSec: number): string => {
         const now = Math.floor(Date.now() / 1000); // Convert current time to seconds
@@ -90,6 +91,18 @@ function Customer() {
     // }, [isLoggedIn]);
 
     useEffect(() => {
+        // Check for marketId in the URL query parameters
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const marketIdFromUrl = params.get('marketId');
+            if (marketIdFromUrl) {
+                console.log("Market ID from URL:", marketIdFromUrl);
+                setMarketId(marketIdFromUrl);
+            }
+        }
+    }, []);
+
+    useEffect(() => {
         const initService = async () => {
             const authClient = await AuthClient.create();
             const identity = authClient.getIdentity();
@@ -101,14 +114,20 @@ function Customer() {
 
             await setActorIdentity(identity)
             const service = BinaryOptionMarketService.getInstance();
-            await service.initialize();
+            // Initialize with the market ID from the URL if available
+            if (marketId) {
+                console.log("Initializing market service with canister ID:", marketId);
+                await service.initialize(marketId);
+            } else {
+                await service.initialize();
+            }
             setMarketService(service);
         };
 
         if (authenticated && (!marketService || !ledgerService)) {
             initService();
         }
-    }, [authenticated]);
+    }, [authenticated, marketId]);
 
     const fetchMarketDetails = useCallback(async () => {
         if (marketService) {
@@ -372,7 +391,7 @@ function Customer() {
 
                 // setBalance(newBalanceEth);  // Cập nhật lại số dư
                 // setReward(finalReward);  // Reset lại reward sau khi claim
-                // setShowClaimButton(false);  // Ẩn n����t claim sau khi đã nhận
+                // setShowClaimButton(false);  // Ẩn nt claim sau khi đã nhận
 
 
                 setTotalDeposited(0);

@@ -27,7 +27,7 @@ export interface IBinaryOptionMarketService {
 abstract class BaseMarketService {
     protected actor: any = null;
 
-    abstract initialize(): Promise<void>;
+    abstract initialize(canisterId?: string): Promise<void>;
     protected assertInitialized(): void {
         if (!this.actor) {
             throw new Error("Service not initialized");
@@ -51,9 +51,36 @@ export class BinaryOptionMarketService extends BaseMarketService implements IBin
         return BinaryOptionMarketService.instance;
     }
 
-    public async initialize(): Promise<void> {
+    public async initialize(canisterId?: string): Promise<void> {
         if (!this.actor) {
-            this.actor = binaryOptionMarketActor;
+            if (canisterId) {
+                // Import dynamically to avoid circular dependencies
+                const { Actor, HttpAgent } = await import("@dfinity/agent");
+                const { idlFactory } = await import("../declarations/binary_option_market/binary_option_market.did.js");
+
+                // Create a new actor with the specified canister ID
+                const agent = new HttpAgent({
+                    host: process.env.NEXT_PUBLIC_IC_HOST || "http://localhost:4943",
+                });
+
+                // Only fetch the root key in development
+                if (process.env.NODE_ENV !== 'production') {
+                    await agent.fetchRootKey().catch(err => {
+                        console.warn('Unable to fetch root key. Check to ensure local replica is running');
+                        console.error(err);
+                    });
+                }
+
+                this.actor = Actor.createActor(idlFactory, {
+                    agent,
+                    canisterId,
+                });
+                console.log(`Initialized binary option market actor with custom canister ID: ${canisterId}`);
+            } else {
+                // Use the default actor
+                this.actor = binaryOptionMarketActor;
+                console.log("Initialized binary option market actor with default canister ID");
+            }
         }
     }
 
