@@ -97,10 +97,30 @@ function Customer() {
             const marketIdFromUrl = params.get('marketId');
             if (marketIdFromUrl) {
                 console.log("Market ID from URL:", marketIdFromUrl);
-                setMarketId(marketIdFromUrl);
+                // Only set if changed to avoid unnecessary reloads
+                if (marketId !== marketIdFromUrl) {
+                    setMarketId(marketIdFromUrl);
+                }
             }
         }
-    }, []);
+    }, [marketId]);
+
+    // This effect will handle market service reinitialization when marketId changes
+    useEffect(() => {
+        if (marketId && marketService) {
+            console.log("Reinitializing market service with ID:", marketId);
+            marketService.initialize(marketId)
+                .then(() => {
+                    // After reinitialization, refresh market details
+                    if (typeof fetchMarketDetails === 'function') {
+                        fetchMarketDetails();
+                    }
+                })
+                .catch(error => {
+                    console.error("Error reinitializing market service:", error);
+                });
+        }
+    }, [marketId, marketService]);
 
     useEffect(() => {
         const initService = async () => {

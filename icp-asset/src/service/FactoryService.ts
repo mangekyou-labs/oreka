@@ -110,11 +110,12 @@ export class FactoryApiService {
                     console.error(`Error from canister: ${result.err}`);
 
                     // Enhance the error messages with more helpful information
-                    const errMsg = result.err.toLowerCase();
-                    if (errMsg.includes("cycles")) {
+                    const errMsg = typeof result.err === 'string' ? result.err.toLowerCase() : '';
+
+                    if (errMsg.includes("cycles") || errMsg.includes("out of cycles")) {
                         return {
                             ok: null,
-                            err: `Insufficient cycles: ${result.err}. The factory canister may need more cycles to create a new canister.`
+                            err: `Insufficient cycles: The factory canister (${this.localCanisterId}) is out of cycles. Please contact the administrator to top up cycles before trying again.`
                         };
                     } else if (errMsg.includes("maturity") || errMsg.includes("time")) {
                         return {
@@ -140,6 +141,12 @@ export class FactoryApiService {
                         err: `Type error: ${errorMsg}. Please make sure all parameters have the correct type.`
                     };
                 } else if (errorMsg.includes("rejected")) {
+                    if (errorMsg.includes("out of cycles") || errorMsg.includes("cycles")) {
+                        return {
+                            ok: null,
+                            err: `Insufficient cycles: The factory canister (${this.localCanisterId}) needs more cycles to create a new market. Please contact the administrator.`
+                        };
+                    }
                     return {
                         ok: null,
                         err: `Call rejected: ${errorMsg}. The canister may be busy or unavailable.`

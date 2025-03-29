@@ -258,11 +258,14 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                 return;
             }
 
+            // Ensure we have a valid fee percentage value (use default if not moved)
             const feePercentageNum = parseFloat(feePercentage);
-            if (isNaN(feePercentageNum) || feePercentageNum < 0.1 || feePercentageNum > 20) {
-                setErrorMsg('Fee percentage must be between 0.1% and 20%');
-                return;
-            }
+            // Validate the fee percentage value, default to 1.0 if invalid
+            const validatedFeePercentage = (!isNaN(feePercentageNum) && feePercentageNum >= 0.1 && feePercentageNum <= 20)
+                ? feePercentageNum
+                : 1.0;
+
+            console.log("Using fee percentage:", validatedFeePercentage);
 
             // Calculate target date in milliseconds and validate
             const targetDateMs = new Date(`${maturityDate} ${maturityTime}`).getTime();
@@ -310,7 +313,7 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                 marketName,
                 strikePrice: strikePriceNum,
                 maturityTime: offsetSeconds,
-                feePercentage: Math.round(feePercentageNum),
+                feePercentage: Math.round(validatedFeePercentage),
                 tradingPair
             });
 
@@ -318,7 +321,7 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                 marketName,                              // Text
                 strikePriceNum,                          // Float64
                 offsetSeconds,                           // Int - actual time offset
-                Math.round(feePercentageNum),            // Nat
+                Math.round(validatedFeePercentage),      // Nat
                 tradingPair                              // Text
             );
 
@@ -339,7 +342,7 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                             `Market canister created successfully with ID: ${canisterId}\n\n` +
                             `IMPORTANT: You must initialize this canister with binary option market code.\n` +
                             `Run this command in the terminal:\n` +
-                            `./deploy-market.sh ${canisterId} ${strikePriceNum} ${endTimestampSeconds} ${Math.round(feePercentageNum)} "${tradingPair}"`
+                            `./deploy-market.sh ${canisterId} ${strikePriceNum} ${endTimestampSeconds} ${Math.round(validatedFeePercentage)} "${tradingPair}"`
                         );
 
                         if (onSuccess) {
@@ -371,7 +374,11 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                     if (errorMessage.includes("type") || errorMessage.includes("argument")) {
                         setErrorMsg(`Type error in market parameters: ${errorMessage}. Please check that all values are valid.`);
                     } else if (errorMessage.includes("cycles")) {
-                        setErrorMsg(`Deployment failed due to insufficient cycles: ${errorMessage}. Please contact the administrator.`);
+                        setErrorMsg(
+                            `Deployment failed due to insufficient cycles: ${errorMessage}\n\n` +
+                            `This means the factory canister has run out of cycles, which are required to create new markets. ` +
+                            `Please contact the administrator to add more cycles to the factory canister.`
+                        );
                     } else if (errorMessage.includes("maturity") || errorMessage.includes("time")) {
                         setErrorMsg(`Invalid maturity time settings: ${errorMessage}. Please select a valid date and time in the future.`);
                     } else if (errorMessage.includes("strike price")) {

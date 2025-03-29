@@ -52,6 +52,12 @@ export class BinaryOptionMarketService extends BaseMarketService implements IBin
     }
 
     public async initialize(canisterId?: string): Promise<void> {
+        // Reset actor if a different canister ID is provided
+        if (canisterId && this.actor) {
+            console.log("Reinitializing with new canister ID:", canisterId);
+            this.actor = null;
+        }
+
         if (!this.actor) {
             if (canisterId) {
                 // Import dynamically to avoid circular dependencies
