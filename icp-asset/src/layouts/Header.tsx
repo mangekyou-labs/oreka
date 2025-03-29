@@ -90,13 +90,24 @@ export default function Header() {
     router.push(path);
   };
 
-  const isActive = (path: string) => router.pathname === path;
+  const isActive = (path: string) => {
+    // For the markets page, we need to check if we're on the home page with a marketId query parameter
+    if (path === '/markets' && router.pathname === '/' && router.query.marketId) {
+      return true;
+    }
+    return router.pathname === path;
+  };
 
   // Navigation items
   const navItems = [
     { name: 'Home', path: '/' },
     { name: 'Factory', path: '/factory' },
-    { name: 'Markets', path: '/markets' },
+    {
+      name: router.pathname === '/' && router.query.marketId
+        ? 'Market Details'
+        : 'Markets',
+      path: '/markets'
+    },
   ];
 
   // Mobile drawer navigation
@@ -159,7 +170,9 @@ export default function Header() {
                       Logged in as:
                     </Text>
                     <Text color="white" fontSize="sm" fontFamily="monospace" isTruncated>
-                      {userPrincipal}
+                      {userPrincipal
+                        ? `${userPrincipal.substring(0, 8)}...${userPrincipal.substring(userPrincipal.length - 8)}`
+                        : "Not signed in"}
                     </Text>
                     <Button
                       colorScheme="blue"
@@ -199,11 +212,12 @@ export default function Header() {
       position="sticky"
       top={0}
       borderBottom="1px solid rgba(255, 255, 255, 0.05)"
+      width="100%"
     >
-      <Container maxW="container.xl" py={4}>
-        <Flex h={16} alignItems="center" justifyContent="space-between">
+      <Container maxW="container.lg" py={4} mx="auto">
+        <Flex h={16} alignItems="center" justifyContent="space-between" width="100%">
           {/* Logo */}
-          <Box cursor="pointer" onClick={() => navigateTo('/')}>
+          <Box cursor="pointer" onClick={() => navigateTo('/')} width="180px">
             <Text
               fontSize="2xl"
               fontWeight="bold"
@@ -211,13 +225,14 @@ export default function Header() {
               bgGradient="linear(to-r, #4a63c8, #5a73d8, #6a83e8)"
               bgClip="text"
               letterSpacing="wider"
+              textAlign="center"
             >
               OREKA
             </Text>
           </Box>
 
           {/* Desktop Navigation */}
-          <HStack spacing={6} display={{ base: 'none', md: 'flex' }}>
+          <HStack spacing={8} display={{ base: 'none', md: 'flex' }} justifyContent="center" flex="1">
             {navItems.map((item) => (
               <Box
                 key={item.name}
@@ -246,7 +261,7 @@ export default function Header() {
           </HStack>
 
           {/* Login/Identity Section */}
-          <Flex alignItems="center">
+          <Flex alignItems="center" width="180px" justifyContent="flex-end">
             {isAuthenticated ? (
               <Menu>
                 <MenuButton
@@ -268,7 +283,9 @@ export default function Header() {
                   }}
                 >
                   <Text fontSize="sm" maxW="150px" isTruncated>
-                    {userPrincipal && `${userPrincipal.substring(0, 5)}...${userPrincipal.substring(userPrincipal.length - 3)}`}
+                    {userPrincipal
+                      ? `User: ${userPrincipal.substring(0, 5)}...${userPrincipal.substring(userPrincipal.length - 3)}`
+                      : "Account"}
                   </Text>
                 </MenuButton>
                 <MenuList bg="#0F1F3C" borderColor="rgba(255, 255, 255, 0.1)">
