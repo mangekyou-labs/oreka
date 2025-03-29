@@ -68,6 +68,32 @@ actor Factory {
     ) : async Result.Result<Principal, Text> {
         let caller = msg.caller;
         
+        // Input validation first
+        if (Text.size(name) == 0) {
+            Debug.print("Error: Market name cannot be empty");
+            return #err("Market name cannot be empty");
+        };
+        
+        if (strikePrice <= 0.0) {
+            Debug.print("Error: Strike price must be positive");
+            return #err("Strike price must be positive");
+        };
+        
+        if (maturityTime <= 0) {
+            Debug.print("Error: Maturity time must be in the future");
+            return #err("Maturity time must be in the future");
+        };
+        
+        if (feePercentage > 100) {
+            Debug.print("Error: Fee percentage must be between 0 and 100");
+            return #err("Fee percentage must be between 0 and 100");
+        };
+        
+        if (Text.size(tradingPair) == 0) {
+            Debug.print("Error: Trading pair cannot be empty");
+            return #err("Trading pair cannot be empty");
+        };
+        
         try {
             Debug.print("Deploying market with parameters:");
             Debug.print("Name: " # name);
@@ -78,15 +104,28 @@ actor Factory {
             
             // Calculate end timestamp
             let currentTime = Time.now();
-            let endTimestamp = Nat64.fromNat(Int.abs(currentTime + maturityTime) / 1_000_000);
+            Debug.print("Current time: " # Int.toText(currentTime));
+            
+            // Calculate safe time conversion to avoid overflow/underflow
+            var endTimestampInt = currentTime + maturityTime * 1_000_000_000; // Convert seconds to nanoseconds
+            Debug.print("End timestamp (nanoseconds): " # Int.toText(endTimestampInt));
+            
+            let endTimestamp = Nat64.fromNat(Int.abs(endTimestampInt) / 1_000_000_000); // Convert to seconds
+            Debug.print("End timestamp (seconds): " # Nat64.toText(endTimestamp));
             
             // Add cycles for new canister creation
-            Cycles.add(1_000_000_000_000);
+            let requiredCycles = 1_000_000_000_000; // 1T cycles
+            Debug.print("Adding " # Nat.toText(requiredCycles) # " cycles for canister creation");
+            Cycles.add(requiredCycles);
             
             // Create new canister with default settings
-            let {canister_id} = await ic.create_canister();
+            Debug.print("Creating new canister...");
+            let canisterCreationResult = await ic.create_canister();
+            let canister_id = canisterCreationResult.canister_id;
+            Debug.print("Created new canister with ID: " # Principal.toText(canister_id));
             
             // Set controllers
+            Debug.print("Setting controllers for canister...");
             let controllers: ?[Principal] = ?[caller, Principal.fromActor(Factory)];
             
             await ic.update_settings({
@@ -98,35 +137,35 @@ actor Factory {
                     compute_allocation = null;
                 }
             });
-            
-            Debug.print("Created new canister with ID: " # Principal.toText(canister_id));
-            Debug.print("Parameters to be used for manual wasm installation:");
-            Debug.print("Strike Price: " # Float.toText(strikePrice));
-            Debug.print("End Timestamp: " # Nat64.toText(endTimestamp));
-            Debug.print("Trading Pair: " # tradingPair);
-            Debug.print("Fee Percentage: " # Nat.toText(feePercentage));
+            Debug.print("Controllers set successfully");
             
             // Add to owner's contracts
             var contracts = switch (ownerContracts.get(caller)) {
                 case null {
+                    Debug.print("Creating new contract buffer for owner");
                     let newBuffer = Buffer.Buffer<ContractAddress>(0);
                     ownerContracts.put(caller, newBuffer);
                     newBuffer;
                 };
-                case (?existing) { existing };
+                case (?existing) { 
+                    Debug.print("Using existing contract buffer for owner");
+                    existing 
+                };
             };
             
+            Debug.print("Adding canister to owner's contracts");
             contracts.add(canister_id);
             
             // Add to all contracts
             let contractDetails: Contract = {
                 canisterId = canister_id;
                 owner = caller;
-                createdAt = Nat64.fromNat(Int.abs(Time.now() / 1_000_000));
+                createdAt = Nat64.fromNat(Int.abs(Time.now() / 1_000_000_000));
                 name = name;
                 contractType = #BinaryOptionMarket;
             };
             
+            Debug.print("Adding contract to global contracts list");
             allContracts.add(contractDetails);
             
             // Create event
@@ -137,12 +176,25 @@ actor Factory {
                 timestamp = contractDetails.createdAt;
             };
             
+            Debug.print("Recording deployment event");
             deployEvents.add(event);
             
-            #ok(canister_id)
+            Debug.print("Market deployment completed successfully");
+            return #ok(canister_id);
         } catch (e) {
-            Debug.print("Error deploying market: " # Error.message(e));
-            #err("Failed to deploy market: " # Error.message(e))
+            let errorMsg = Error.message(e);
+            Debug.print("Error deploying market: " # errorMsg);
+            
+            // Provide more detailed error messages based on common error patterns
+            if (Text.contains(errorMsg, #text "cycles")) {
+                return #err("Insufficient cycles to create canister. Please ensure your factory canister has enough cycles.");
+            } else if (Text.contains(errorMsg, #text "memory")) {
+                return #err("Memory allocation error during canister creation.");
+            } else if (Text.contains(errorMsg, #text "create_canister")) {
+                return #err("IC error when creating canister. The subnet may be at capacity.");
+            } else {
+                return #err("Failed to deploy market: " # errorMsg);
+            }
         }
     };
     

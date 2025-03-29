@@ -61,41 +61,22 @@ const DeployContract: React.FC<DeployContractProps> = ({ userPrincipal, onSucces
         setLoading(true);
 
         try {
-            const finalType = contractType === 'Other' ? otherType : contractType;
-            const result = await factoryService.registerContract(
-                contractId,
-                contractName,
-                finalType
-            );
+            // Since there's no registerContract function, we can use deployMarket to create a new contract
+            // Or disable this component if it's not needed
+            toast({
+                title: "Feature not available",
+                description: "Contract registration is not available in this version. Please use the Deploy Market function instead.",
+                status: "info",
+                duration: 5000,
+                isClosable: true,
+            });
 
-            if ('ok' in result) {
-                toast({
-                    title: "Success!",
-                    description: `Contract registered successfully with index ${result.ok}`,
-                    status: "success",
-                    duration: 5000,
-                    isClosable: true,
-                });
+            // Reset form
+            setContractId('');
+            setContractName('');
+            setContractType('BinaryOptionMarket');
+            setOtherType('');
 
-                // Reset form
-                setContractId('');
-                setContractName('');
-                setContractType('BinaryOptionMarket');
-                setOtherType('');
-
-                // Notify parent component
-                if (onSuccess) {
-                    onSuccess();
-                }
-            } else {
-                toast({
-                    title: "Error",
-                    description: `${result.err}`,
-                    status: "error",
-                    duration: 5000,
-                    isClosable: true,
-                });
-            }
         } catch (error) {
             console.error('Error registering contract:', error);
             toast({

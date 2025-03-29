@@ -12,7 +12,7 @@ type ApiResult<T> = {
 // Default canister ID - should be configured based on environment
 const FACTORY_CANISTER_ID = process.env.NEXT_PUBLIC_FACTORY_CANISTER_ID ||
     (process.env.NODE_ENV !== "production"
-        ? "be2us-64aaa-aaaaa-qaabq-cai"  // Local canister ID for development
+        ? "bd3sg-teaaa-aaaaa-qaaba-cai"  // Local canister ID for development
         : "rrkah-fqaaa-aaaaa-aaaaq-cai"); // Default production canister ID
 
 /**
@@ -21,11 +21,15 @@ const FACTORY_CANISTER_ID = process.env.NEXT_PUBLIC_FACTORY_CANISTER_ID ||
 export class FactoryApiService {
     private agent: HttpAgent;
     private factoryActor: _SERVICE;
-    private localCanisterId: string = process.env.NEXT_PUBLIC_FACTORY_CANISTER_ID || "be2us-64aaa-aaaaa-qaabq-cai";
+    private localCanisterId: string = process.env.NEXT_PUBLIC_FACTORY_CANISTER_ID || "bd3sg-teaaa-aaaaa-qaaba-cai";
 
     constructor() {
         console.log("Initializing FactoryApiService with canister ID:", this.localCanisterId);
         console.log("Using host:", process.env.NEXT_PUBLIC_IC_HOST || "http://localhost:4943");
+        console.log("Environment variables:", {
+            NODE_ENV: process.env.NODE_ENV,
+            NEXT_PUBLIC_FACTORY_CANISTER_ID: process.env.NEXT_PUBLIC_FACTORY_CANISTER_ID
+        });
 
         this.agent = new HttpAgent({
             host: process.env.NEXT_PUBLIC_IC_HOST || "http://localhost:4943",
@@ -47,136 +51,108 @@ export class FactoryApiService {
     }
 
     /**
-     * Deploy a new market canister
-     * @param marketName The name of the market
-     * @param strikePrice The strike price in e8s
-     * @param maturityTime The maturity time in nanoseconds
-     * @param feePercentage The fee percentage in basis points (e.g. 100 = 1%)
-     * @param tradingPair The trading pair (e.g. "ICP-USD")
-     * @returns Promise with the canister ID or error
+     * Deploy a new market canister with enhanced error handling
      */
     async deployMarket(
         marketName: string,
-        strikePrice: bigint,
-        maturityTime: bigint,
-        feePercentage: bigint,
+        strikePrice: number,
+        maturityTime: number,
+        feePercentage: number,
         tradingPair: string = "ICP-USD"
     ): Promise<ApiResult<Principal>> {
-        console.log(`Deploying market with name: ${marketName}, strike price: ${strikePrice}, maturity time: ${maturityTime}, fee percentage: ${feePercentage}, trading pair: ${tradingPair}`);
-        try {
-            // Convert strikePrice to float for the canister
-            const strikeFloat = Number(strikePrice) / 100000000;
-            console.log(`Converted strike price to float: ${strikeFloat}`);
+        // Validate input parameters before making the call
+        if (!marketName || marketName.trim() === "") {
+            return { ok: null, err: "Market name cannot be empty" };
+        }
 
-            // Add extra logging for debugging
-            console.log(`Calling deployMarket with parameters:`, {
-                marketName,
-                strikeFloat,
-                maturityTime: maturityTime.toString(),
-                feePercentage: feePercentage.toString(),
-                tradingPair
+        if (typeof strikePrice !== 'number' || isNaN(strikePrice) || strikePrice <= 0) {
+            return { ok: null, err: "Strike price must be a positive number" };
+        }
+
+        if (typeof maturityTime !== 'number' || maturityTime <= 0) {
+            return { ok: null, err: "Maturity time must be a positive number of seconds in the future" };
+        }
+
+        if (typeof feePercentage !== 'number' || feePercentage < 0 || feePercentage > 100) {
+            return { ok: null, err: "Fee percentage must be between 0 and 100" };
+        }
+
+        if (!tradingPair || tradingPair.trim() === "") {
+            return { ok: null, err: "Trading pair cannot be empty" };
+        }
+
+        try {
+            console.log("Deploying market with parameters:", {
+                marketName: `${marketName} (${typeof marketName})`,
+                strikePrice: `${strikePrice} (${typeof strikePrice})`,
+                maturityTime: `${maturityTime} (${typeof maturityTime})`,
+                feePercentage: `${feePercentage} (${typeof feePercentage})`,
+                tradingPair: `${tradingPair} (${typeof tradingPair})`
             });
 
-            // Use try-catch to handle any unexpected issues
             try {
-                // Based on the actual canister did file:
-                // deployMarket: (text, float64, int, nat, text) -> (Result);
-                // We need to convert our parameters accordingly
-
-                // The Motoko code expects maturityTime to be a RELATIVE time offset
-                // in nanoseconds from the current time, not an absolute timestamp!
-
-                // Calculate future timestamp in nanoseconds (relative to now)
-                const nowMs = Date.now();
-                const maturityMs = Number(maturityTime) * 1000; // Convert seconds to ms
-                const offsetMs = maturityMs - nowMs;
-
-                if (offsetMs <= 0) {
-                    throw new Error("Maturity time must be in the future");
-                }
-
-                // Convert to nanoseconds offset
-                const maturityOffset = offsetMs * 1000000; // ms to ns
-
-                const feePercentageNumber = Number(feePercentage);
-
-                console.log("Converted parameters to Candid types:", {
-                    marketName: typeof marketName,                // text
-                    strikeFloat: typeof strikeFloat,              // float64
-                    maturityOffset: `${maturityOffset} ns (relative to now)`, // int
-                    feePercentageNumber: typeof feePercentageNumber, // nat
-                    tradingPair: typeof tradingPair                // text
-                });
-
-                // TypeScript definitions now match the Candid interface
+                // Make the canister call with the correct parameter types
                 const result = await this.factoryActor.deployMarket(
-                    marketName,             // text
-                    strikeFloat,            // float64
-                    maturityOffset,         // int (ns from now)
-                    feePercentageNumber,    // nat
-                    tradingPair             // text
+                    marketName,              // Text
+                    strikePrice,             // Float64
+                    maturityTime,            // Int
+                    feePercentage,           // Nat
+                    tradingPair              // Text
                 );
 
-                // Add detailed logging to help debug
-                console.log("Deploy market result (raw):", JSON.stringify(result));
-                console.log("Result type:", typeof result);
-                console.log("Has ok property:", 'ok' in result);
-                if ('ok' in result) {
-                    console.log("Result.ok type:", typeof result.ok);
-                    console.log("Result.ok value:", result.ok);
-                    console.log("Result.ok instanceof Principal:", result.ok instanceof Principal);
-                    if (result.ok) {
-                        try {
-                            console.log("Result.ok can be converted to string:", result.ok.toString());
-                        } catch (e) {
-                            console.error("Error converting result.ok to string:", e);
-                        }
-                    }
-                }
+                console.log("Market deployment call result:", result);
 
-                if ('ok' in result) {
-                    // Check explicitly if result.ok is not null and is a Principal
-                    if (result.ok && typeof result.ok === 'object') {
-                        try {
-                            const principalStr = result.ok.toString();
-                            console.log('Market deployed successfully, canister ID:', principalStr);
-                            return {
-                                ok: result.ok,
-                                err: null
-                            };
-                        } catch (e) {
-                            console.error('Error converting principal to string:', e);
-                            return {
-                                ok: null,
-                                err: "Invalid Principal returned from factory"
-                            };
-                        }
-                    } else {
-                        console.error('Received invalid result.ok (null or not a Principal):', result);
+                if ('ok' in result && result.ok) {
+                    const canisterId = result.ok.toString();
+                    console.log(`Market deployed successfully with canister ID: ${canisterId}`);
+                    return { ok: result.ok, err: null };
+                } else if ('err' in result) {
+                    console.error(`Error from canister: ${result.err}`);
+
+                    // Enhance the error messages with more helpful information
+                    const errMsg = result.err.toLowerCase();
+                    if (errMsg.includes("cycles")) {
                         return {
                             ok: null,
-                            err: "Received invalid canister ID from factory"
+                            err: `Insufficient cycles: ${result.err}. The factory canister may need more cycles to create a new canister.`
                         };
+                    } else if (errMsg.includes("maturity") || errMsg.includes("time")) {
+                        return {
+                            ok: null,
+                            err: `Invalid time value: ${result.err}. Please check the maturity time parameter.`
+                        };
+                    } else {
+                        return { ok: null, err: result.err };
                     }
                 } else {
-                    console.error('Error deploying market:', result.err);
+                    console.error("Unexpected result format from canister call");
+                    return { ok: null, err: "Unexpected result format from canister" };
+                }
+            } catch (error) {
+                console.error("Deploy market call failed:", error);
+
+                // Handle different types of errors
+                const errorMsg = error instanceof Error ? error.message : String(error);
+
+                if (errorMsg.includes("type") || errorMsg.includes("argument")) {
                     return {
                         ok: null,
-                        err: result.err
+                        err: `Type error: ${errorMsg}. Please make sure all parameters have the correct type.`
                     };
+                } else if (errorMsg.includes("rejected")) {
+                    return {
+                        ok: null,
+                        err: `Call rejected: ${errorMsg}. The canister may be busy or unavailable.`
+                    };
+                } else {
+                    return { ok: null, err: `Error: ${errorMsg}` };
                 }
-            } catch (callError) {
-                console.error("Error during deployMarket call:", callError);
-                return {
-                    ok: null,
-                    err: `Error calling deployMarket: ${callError instanceof Error ? callError.message : String(callError)}`
-                };
             }
         } catch (error) {
-            console.error('Exception while deploying market:', error);
+            console.error("Top-level error during market deployment:", error);
             return {
                 ok: null,
-                err: error instanceof Error ? error.message : String(error)
+                err: `Exception during market deployment: ${error instanceof Error ? error.message : String(error)}`
             };
         }
     }
@@ -271,12 +247,17 @@ export class FactoryApiService {
     async getContractDetails(contractId: Principal): Promise<ApiResult<Contract>> {
         try {
             console.log("Fetching contract details for:", contractId.toString());
-            const result = await this.factoryActor.getContractDetails(contractId);
+            // The getContractDetails function doesn't exist in the canister
+            // Instead, get all contracts and filter for the one with matching ID
+            const allContracts = await this.factoryActor.getAllContracts();
+            const contract = allContracts.find(
+                contract => contract.canisterId.toString() === contractId.toString()
+            );
 
-            if (result.length > 0 && result[0]) {
+            if (contract) {
                 console.log("Contract details retrieved successfully");
                 return {
-                    ok: result[0],
+                    ok: contract,
                     err: null
                 };
             } else {

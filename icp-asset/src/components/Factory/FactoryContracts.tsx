@@ -110,7 +110,7 @@ const FactoryContracts: React.FC<FactoryContractsProps> = ({ userPrincipal }) =>
                     if (userPrincipal) {
                         const userPrincipalObj = Principal.fromText(userPrincipal);
                         const filtered = allContractsResult.ok.filter(
-                            contract => Principal.equal(contract.owner, userPrincipalObj)
+                            contract => userPrincipalObj.toString() === contract.owner.toString()
                         );
                         setUserContracts(filtered);
                         console.log("Filtered user contracts:", filtered);
