@@ -338,12 +338,41 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                         // Calculate the end timestamp in seconds (for the command)
                         const endTimestampSeconds = Math.floor(targetDateMs / 1000);
 
-                        setSuccessMsg(
-                            `Market canister created successfully with ID: ${canisterId}\n\n` +
-                            `IMPORTANT: You must initialize this canister with binary option market code.\n` +
-                            `Run this command in the terminal:\n` +
-                            `./deploy-market.sh ${canisterId} ${strikePriceNum} ${endTimestampSeconds} ${Math.round(validatedFeePercentage)} "${tradingPair}"`
-                        );
+                        // Try to automatically install the WASM code
+                        try {
+                            console.log("Trying to automatically install WASM code...");
+                            const installResult = await factoryService.installBinaryOptionMarketCode(
+                                result.ok,               // Principal
+                                strikePriceNum,          // Float64
+                                BigInt(endTimestampSeconds),  // Nat64
+                                Math.round(validatedFeePercentage),  // Nat
+                                tradingPair              // Text
+                            );
+
+                            if (installResult.err) {
+                                console.warn("Warning: WASM installation returned an error:", installResult.err);
+                                // Still show the command as fallback
+                                setSuccessMsg(
+                                    `Market canister created successfully with ID: ${canisterId}\n\n` +
+                                    `Note: Automatic WASM installation failed: ${installResult.err}\n\n` +
+                                    `Please run this command in the terminal to install the WASM manually:\n` +
+                                    `./deploy-market.sh ${canisterId} ${strikePriceNum} ${endTimestampSeconds} ${Math.round(validatedFeePercentage)} "${tradingPair}"`
+                                );
+                            } else {
+                                setSuccessMsg(
+                                    `Market canister created and code installed successfully with ID: ${canisterId}\n\n` +
+                                    `Market is now ready for trading!`
+                                );
+                            }
+                        } catch (err) {
+                            console.error("Error installing WASM code:", err);
+                            setSuccessMsg(
+                                `Market canister created successfully with ID: ${canisterId}\n\n` +
+                                `IMPORTANT: You must initialize this canister with binary option market code.\n` +
+                                `Run this command in the terminal:\n` +
+                                `./deploy-market.sh ${canisterId} ${strikePriceNum} ${endTimestampSeconds} ${Math.round(validatedFeePercentage)} "${tradingPair}"`
+                            );
+                        }
 
                         if (onSuccess) {
                             onSuccess(canisterId);

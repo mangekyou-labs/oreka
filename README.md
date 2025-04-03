@@ -134,7 +134,7 @@ record {
 dfx deploy factory
 
 # (Optional) Deploy a test market directly for testing
-dfx deploy binary_option_market --argument '(12.0, 1734503362, "ICP-USD", 10)'
+dfx deploy binary_option_market --argument '(12.0, 1743680750, "ICP-USD", 10)'
 
 # optional: deploy test canister
 dfx deploy binary_option_market_test
@@ -215,6 +215,49 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Contact 📧
 
 For questions and support, please open an issue or reach out to the maintainers.
+
+## Deployment Backend API
+
+The project now includes a dedicated API for automating the deployment of WASM modules to created canisters. This eliminates the need to manually run the `deploy-market.sh` script after creating a market.
+
+### Running the Deployment API
+
+1. Install the required dependencies:
+   ```
+   npm install
+   ```
+
+2. Start the API server:
+   ```
+   npm run start:api
+   ```
+
+3. For development with auto-reload:
+   ```
+   npm run dev:api
+   ```
+
+The API server runs on port 3001 by default. You can change this by setting the `API_PORT` environment variable.
+
+### API Endpoints
+
+- `GET /health` - Health check endpoint
+- `POST /api/deploy/market` - Deploy WASM to a market canister
+  - Body parameters:
+    - `canisterId` - The canister ID to deploy to
+    - `strikePrice` - The strike price for the market
+    - `maturityTimestamp` - The maturity timestamp in seconds
+    - `feePercentage` - The fee percentage (0-100)
+    - `tradingPair` - The trading pair (default: ICP-USD)
+- `GET /api/deploy/status/:canisterId` - Check deployment status of a canister
+
+### Configuration
+
+Configure the frontend to use the API by setting these environment variables:
+
+```
+NEXT_PUBLIC_DEPLOYMENT_API_URL=http://localhost:3001/api/deploy
+```
 
 ---
 

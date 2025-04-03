@@ -2,6 +2,7 @@ import { Actor, HttpAgent } from "@dfinity/agent";
 import { Principal } from "@dfinity/principal";
 import { idlFactory } from "../declarations/factory/factory.did.js";
 import { _SERVICE, Contract, ContractType, DeployEvent } from "../declarations/factory/factory";
+import axios from 'axios';
 
 // Type for API Results
 type ApiResult<T> = {
@@ -14,6 +15,9 @@ const FACTORY_CANISTER_ID = process.env.NEXT_PUBLIC_FACTORY_CANISTER_ID ||
     (process.env.NODE_ENV !== "production"
         ? "bd3sg-teaaa-aaaaa-qaaba-cai"  // Local canister ID for development
         : "rrkah-fqaaa-aaaaa-aaaaq-cai"); // Default production canister ID
+
+// Deployment API base URL
+const DEPLOYMENT_API_URL = process.env.NEXT_PUBLIC_DEPLOYMENT_API_URL || 'http://localhost:3001/api/deploy';
 
 /**
  * Helper service for interacting with the Factory canister
@@ -300,6 +304,71 @@ export class FactoryApiService {
             return {
                 ok: null,
                 err: error instanceof Error ? error.message : String(error)
+            };
+        }
+    }
+
+    /**
+     * Install Binary Option Market WASM code to a canister
+     * This now uses the backend deployment API
+     */
+    async installBinaryOptionMarketCode(
+        canisterId: Principal,
+        strikePrice: number,
+        maturityTimestamp: bigint,
+        feePercentage: number,
+        tradingPair: string = "ICP-USD"
+    ): Promise<ApiResult<null>> {
+        try {
+            console.log("Installing Binary Option Market code to canister via API:", canisterId.toString());
+            console.log("Using API URL:", DEPLOYMENT_API_URL);
+            console.log("Parameters:", {
+                canisterId: canisterId.toString(),
+                strikePrice,
+                maturityTimestamp: maturityTimestamp.toString(),
+                feePercentage,
+                tradingPair
+            });
+
+            // First check if deployment API is accessible
+            try {
+                await axios.get(`${DEPLOYMENT_API_URL.replace('/api/deploy', '')}/health`);
+            } catch (error) {
+                console.error("Deployment API health check failed:", error);
+                return {
+                    ok: null,
+                    err: `Deployment API is not accessible. Fallback to the command line: ./deploy-market.sh ${canisterId.toString()} ${strikePrice} ${maturityTimestamp.toString()} ${feePercentage} "${tradingPair}"`
+                };
+            }
+
+            // Call the deployment API
+            const response = await axios.post(`${DEPLOYMENT_API_URL}/market`, {
+                canisterId: canisterId.toString(),
+                strikePrice,
+                maturityTimestamp: maturityTimestamp.toString(),
+                feePercentage,
+                tradingPair
+            });
+
+            console.log("Deployment API response:", response.data);
+
+            if (response.data.success) {
+                return { ok: null, err: null };
+            } else {
+                return {
+                    ok: null,
+                    err: response.data.error || "Unknown error deploying WASM"
+                };
+            }
+        } catch (error) {
+            console.error("Error calling deployment API:", error);
+
+            // Provide fallback command if API fails
+            return {
+                ok: null,
+                err: `Failed to call deployment API: ${error instanceof Error ? error.message : String(error)}\n\n` +
+                    `Please use the deploy-market.sh script with these parameters:\n` +
+                    `./deploy-market.sh ${canisterId.toString()} ${strikePrice} ${maturityTimestamp.toString()} ${feePercentage} "${tradingPair}"`
             };
         }
     }

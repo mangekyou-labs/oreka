@@ -12,6 +12,11 @@ const EnvPlugin = new webpack.EnvironmentPlugin({
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  swcMinify: true,
+  env: {
+    NEXT_PUBLIC_IC_HOST: process.env.NEXT_PUBLIC_IC_HOST || "http://localhost:4943",
+    NEXT_PUBLIC_DEPLOYMENT_API_URL: process.env.NEXT_PUBLIC_DEPLOYMENT_API_URL || "http://localhost:3001/api/deploy"
+  },
   transpilePackages: ['@mui/material', '@mui/system', '@mui/icons-material', '@mui/private-theming'],
   webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
     // Plugin
@@ -24,6 +29,16 @@ const nextConfig = {
       '@mui/icons-material': '@mui/icons-material/legacy',
       '@mui/private-theming': '@mui/private-theming/legacy',
       '@': path.resolve(__dirname, 'src'),
+    };
+
+    // Apply Webpack settings for ICP support
+    config.resolve.fallback = {
+      fs: false,
+      path: false,
+      assert: require.resolve("assert"),
+      events: require.resolve("events"),
+      stream: require.resolve("stream-browserify"),
+      util: require.resolve("util")
     };
 
     // Important: return the modified config

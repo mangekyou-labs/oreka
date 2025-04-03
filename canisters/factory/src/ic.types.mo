@@ -24,5 +24,11 @@ module {
             canister_id : canister_id; 
             settings : canister_settings 
         } -> async ();
+        install_code : shared {
+            arg : Blob;
+            wasm_module : wasm_module;
+            mode : { #reinstall; #upgrade; #install };
+            canister_id : canister_id;
+        } -> async ();
     };
 }; 

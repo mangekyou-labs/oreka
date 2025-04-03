@@ -14,6 +14,12 @@
         "icp_ledger_canister"
       ]
     },
+    "market_deployer": {
+      "type": "rust",
+      "package": "market_deployer",
+      "candid": "canisters/market_deployer/market_deployer.did",
+      "optimize": "size"
+    },
     "binary_option_market_asset": {
       "dependencies": [
         "binary_option_market"
