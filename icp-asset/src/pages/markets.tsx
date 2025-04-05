@@ -11,10 +11,11 @@ import {
     Divider,
     CircularProgress
 } from '@mui/material';
-import { ThemeProvider } from '@mui/material/styles';
+import { ThemeProvider } from '@emotion/react';
 import muiTheme from '../themes/muiTheme';
 import { AuthClient } from '@dfinity/auth-client';
 import DeployMarket from '../components/Factory/DeployMarket';
+import TokenCreation from '../components/Factory/TokenCreation';
 import ListMarketsMui from '../components/Factory/ListMarketsMui';
 import { useRouter } from 'next/router';
 import { FactoryApiService } from '../service/FactoryService';
@@ -92,10 +93,19 @@ const MarketsPage: React.FC = () => {
     const fetchMarkets = async () => {
         try {
             const factory = new FactoryApiService();
-            const result = await factory.listMarkets();
-            if ('ok' in result) {
-                setMarkets(result.ok || []);
-                console.log("Markets retrieved:", result.ok);
+            const result = await factory.getAllContracts();
+            if (result.ok) {
+                // Filter to get only binary option markets
+                const marketsList = result.ok
+                    .filter(contract => 'type' in contract && contract.type && 'BinaryOptionMarket' in contract.type)
+                    .map(contract => ({
+                        name: contract.title || 'Unnamed Market',
+                        market_type: 'BinaryOptionMarket',
+                        canister_id: contract.address.toString()
+                    }));
+
+                setMarkets(marketsList || []);
+                console.log("Markets retrieved:", marketsList);
             } else {
                 console.error("Failed to fetch markets:", result.err);
             }
@@ -106,7 +116,9 @@ const MarketsPage: React.FC = () => {
 
     // Check URL for tab selection
     useEffect(() => {
-        if (router.pathname.includes('/create')) {
+        if (router.pathname.includes('/create-token')) {
+            setCurrentTab(2);
+        } else if (router.pathname.includes('/create')) {
             setCurrentTab(1);
         } else {
             setCurrentTab(0);
@@ -115,10 +127,20 @@ const MarketsPage: React.FC = () => {
 
     const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
         setCurrentTab(newValue);
-        router.push(newValue === 0 ? '/markets' : '/markets/create');
+        router.push(newValue === 0 ? '/markets' :
+            newValue === 1 ? '/markets/create' :
+                '/markets/create-token');
     };
 
     const handleMarketCreated = (marketId: string) => {
+        // Navigate to the markets list and refresh
+        setRefreshTrigger(prev => prev + 1);
+        fetchMarkets(); // Refresh the markets list
+        setCurrentTab(0);
+        router.push('/markets');
+    };
+
+    const handleTokenCreated = (tokenId: string) => {
         // Navigate to the markets list and refresh
         setRefreshTrigger(prev => prev + 1);
         fetchMarkets(); // Refresh the markets list
@@ -145,17 +167,26 @@ const MarketsPage: React.FC = () => {
                 <Container maxWidth="lg" sx={{ pt: 4, pb: 4 }}>
                     <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
                         <Typography variant="h4" component="h1" color="text.primary">
-                            Binary Option Markets
+                            Oreka Protocol Factory
                         </Typography>
 
                         {!isLoading && userPrincipal && (
-                            <Button
-                                variant="contained"
-                                color="primary"
-                                onClick={() => router.push('/markets/create')}
-                            >
-                                Create New Market
-                            </Button>
+                            <Stack direction="row" spacing={2}>
+                                <Button
+                                    variant="contained"
+                                    color="primary"
+                                    onClick={() => router.push('/markets/create')}
+                                >
+                                    Create Market
+                                </Button>
+                                <Button
+                                    variant="outlined"
+                                    color="primary"
+                                    onClick={() => router.push('/markets/create-token')}
+                                >
+                                    Create Token
+                                </Button>
+                            </Stack>
                         )}
                     </Box>
 
@@ -175,6 +206,7 @@ const MarketsPage: React.FC = () => {
                         >
                             <Tab label="Browse Markets" />
                             <Tab label="Create Market" />
+                            <Tab label="Create Token" />
                         </Tabs>
 
                         <TabPanel value={currentTab} index={0}>
@@ -195,6 +227,15 @@ const MarketsPage: React.FC = () => {
                                 />
                             )}
                         </TabPanel>
+
+                        <TabPanel value={currentTab} index={2}>
+                            {isClient && (
+                                <TokenCreation
+                                    userPrincipal={userPrincipal}
+                                    onSuccess={handleTokenCreated}
+                                />
+                            )}
+                        </TabPanel>
                     </Paper>
 
                     {isLoading ? (
@@ -207,7 +248,7 @@ const MarketsPage: React.FC = () => {
                                 Not Connected
                             </Typography>
                             <Typography paragraph color="text.secondary">
-                                You are not logged in with Internet Identity. Please log in to create markets and track your positions.
+                                You are not logged in with Internet Identity. Please log in to create markets, tokens, and track your positions.
                             </Typography>
                             <Button variant="outlined" color="primary">
                                 Connect with Internet Identity

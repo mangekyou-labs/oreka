@@ -226,106 +226,120 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
 
     const handleDeployMarket = async () => {
         try {
-            // Enhanced Validation
+            // Basic validation
             if (!selectedCoin) {
-                setErrorMsg('Please select a trading pair');
+                setErrorMsg("Please select a trading pair");
+                setDeploymentStage(0);
+                setIsLoading(false);
                 return;
             }
 
-            if (!marketName || marketName.trim() === '') {
-                setErrorMsg('Please enter a market name');
+            setDeploymentStage(1);
+            setErrorMsg("");
+            setSuccessMsg("");
+
+            // Convert strike price to a proper float (not an integer)
+            const strikePriceFloat = parseFloat(strikePrice);
+
+            // Validate the strike price
+            if (isNaN(strikePriceFloat) || strikePriceFloat <= 0) {
+                setErrorMsg("Strike price must be a positive number");
+                setDeploymentStage(0);
+                setIsLoading(false);
                 return;
             }
 
-            if (!strikePrice || strikePrice.trim() === '') {
-                setErrorMsg('Please enter a strike price');
+            // Prepare market name and validate
+            const marketNameTrimmed = marketName.trim();
+            if (marketNameTrimmed.length === 0) {
+                setErrorMsg("Market name cannot be empty");
+                setDeploymentStage(0);
+                setIsLoading(false);
                 return;
             }
 
-            const strikePriceNum = parseFloat(strikePrice);
-            if (isNaN(strikePriceNum) || strikePriceNum <= 0) {
-                setErrorMsg('Strike price must be a positive number');
+            // Check for special characters that might cause issues
+            if (/[&<>"]/.test(marketNameTrimmed)) {
+                console.warn("Market name contains special characters that might cause issues");
+                setErrorMsg("Please avoid using special characters like &, <, >, \" in the market name");
+                setDeploymentStage(0);
+                setIsLoading(false);
                 return;
             }
 
-            if (!maturityDate) {
-                setErrorMsg('Please select a maturity date');
+            // Get trading pair from selected coin
+            const tradingPair = selectedCoin.value;
+
+            // Calculate expiry timestamp (convert from local date/time to UTC timestamp in seconds)
+            const targetDate = new Date(`${maturityDate}T${maturityTime}`);
+            const targetDateMs = targetDate.getTime();
+
+            // Validate expiry time is in the future
+            if (targetDateMs <= Date.now()) {
+                setErrorMsg("Expiry time must be in the future");
+                setDeploymentStage(0);
+                setIsLoading(false);
                 return;
             }
 
-            if (!maturityTime) {
-                setErrorMsg('Please select a maturity time');
-                return;
-            }
+            const expiryTimestamp = BigInt(Math.floor(targetDateMs / 1000));
 
-            // Ensure we have a valid fee percentage value (use default if not moved)
-            const feePercentageNum = parseFloat(feePercentage);
-            // Validate the fee percentage value, default to 1.0 if invalid
-            const validatedFeePercentage = (!isNaN(feePercentageNum) && feePercentageNum >= 0.1 && feePercentageNum <= 20)
-                ? feePercentageNum
-                : 1.0;
+            // Make sure expiry is properly converted to bigint
+            const expiryAsBigInt = BigInt(expiryTimestamp);
 
-            console.log("Using fee percentage:", validatedFeePercentage);
-
-            // Calculate target date in milliseconds and validate
-            const targetDateMs = new Date(`${maturityDate} ${maturityTime}`).getTime();
-            const nowMs = Date.now();
-
-            if (isNaN(targetDateMs)) {
-                setErrorMsg('Invalid date format. Please provide a valid date and time');
-                return;
-            }
-
-            // Check if maturity time is in the future
-            if (targetDateMs <= nowMs) {
-                setErrorMsg('Maturity time must be in the future');
-                return;
-            }
-
-            // Check if maturity time is too far in the future (e.g., more than 10 years)
-            const maxFutureDate = nowMs + (10 * 365 * 24 * 60 * 60 * 1000); // 10 years in ms
-            if (targetDateMs > maxFutureDate) {
-                setErrorMsg('Maturity time cannot be more than 10 years in the future');
-                return;
-            }
-
-            // Start the deployment process
-            setIsLoading(true);
-            setErrorMsg('');
-            setSuccessMsg('');
-            setDeploymentStage(1); // Approving stage
-
-            // Simulate approval stage
-            await new Promise(resolve => setTimeout(resolve, 1500));
-
-            setDeploymentStage(2); // Creating market
-
+            // Instantiate the factory service
             const factoryService = new FactoryApiService();
 
-            // Create the trading pair in the format "COIN-USD"
-            const tradingPair = `${selectedCoin.value}-USD`;
-
-            // Calculate time offset in seconds (not nanoseconds)
-            const offsetSeconds = Math.floor((targetDateMs - nowMs) / 1000);
-            console.log("Time offset in seconds:", offsetSeconds);
-
-            console.log("Calling deployMarket with params:", {
-                marketName,
-                strikePrice: strikePriceNum,
-                maturityTime: offsetSeconds,
-                feePercentage: Math.round(validatedFeePercentage),
-                tradingPair
+            // Log the parameters we're going to use
+            console.log("Deploying market with dfx-compatible interface:", {
+                name: marketNameTrimmed,        // (1) Text
+                strikePrice: strikePriceFloat,  // (2) Float64 (number)
+                expiry: expiryAsBigInt.toString() // (3) Nat64 (bigint)
             });
 
-            const result = await factoryService.deployMarket(
-                marketName,                              // Text
-                strikePriceNum,                          // Float64
-                offsetSeconds,                           // Int - actual time offset
-                Math.round(validatedFeePercentage),      // Nat
-                tradingPair                              // Text
-            );
+            let result;
+            try {
+                // Call with the exact same format as the successful dfx CLI command
+                console.log("About to call deployMarketDfx with these exact parameters:");
+                console.log("- Market Name:", JSON.stringify(marketNameTrimmed));
+                console.log("- Strike Price:", JSON.stringify(strikePriceFloat));
+                console.log("- Expiry:", JSON.stringify(expiryAsBigInt.toString()));
 
-            console.log("Deploy result in component:", result);
+                // Test serialization first
+                const serializationResult = factoryService.debugSerialize([
+                    marketNameTrimmed,
+                    strikePriceFloat,
+                    expiryAsBigInt.toString()
+                ]);
+                console.log("Serialization test result:", serializationResult);
+
+                result = await factoryService.deployMarketDfx(
+                    marketNameTrimmed,      // (1) name: Text 
+                    strikePriceFloat,       // (2) strikePrice: Float64 (number)
+                    expiryAsBigInt          // (3) expiry: Nat64 (bigint)
+                );
+
+                console.log("Market deployment result:", result);
+            } catch (error) {
+                console.error("Error during deployment call:", error);
+                // Add more detailed error information
+                if (error instanceof Error) {
+                    console.error("Error name:", error.name);
+                    console.error("Error message:", error.message);
+                    console.error("Error stack:", error.stack);
+
+                    if (error.message.includes("&")) {
+                        setErrorMsg("Error: Special character '&' found. Please avoid using special characters in the market name.");
+                    } else {
+                        setErrorMsg(`Error during deployment: ${error.message}`);
+                    }
+                } else {
+                    setErrorMsg(`Error during deployment: ${String(error)}`);
+                }
+                setDeploymentStage(0);
+                setIsLoading(false);
+                return;
+            }
 
             if ('ok' in result && result.ok) {
                 setDeploymentStage(3); // Finished
@@ -335,44 +349,10 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                     console.log("Canister ID as string:", canisterId);
 
                     if (canisterId && canisterId !== "null") {
-                        // Calculate the end timestamp in seconds (for the command)
-                        const endTimestampSeconds = Math.floor(targetDateMs / 1000);
-
-                        // Try to automatically install the WASM code
-                        try {
-                            console.log("Trying to automatically install WASM code...");
-                            const installResult = await factoryService.installBinaryOptionMarketCode(
-                                result.ok,               // Principal
-                                strikePriceNum,          // Float64
-                                BigInt(endTimestampSeconds),  // Nat64
-                                Math.round(validatedFeePercentage),  // Nat
-                                tradingPair              // Text
-                            );
-
-                            if (installResult.err) {
-                                console.warn("Warning: WASM installation returned an error:", installResult.err);
-                                // Still show the command as fallback
-                                setSuccessMsg(
-                                    `Market canister created successfully with ID: ${canisterId}\n\n` +
-                                    `Note: Automatic WASM installation failed: ${installResult.err}\n\n` +
-                                    `Please run this command in the terminal to install the WASM manually:\n` +
-                                    `./deploy-market.sh ${canisterId} ${strikePriceNum} ${endTimestampSeconds} ${Math.round(validatedFeePercentage)} "${tradingPair}"`
-                                );
-                            } else {
-                                setSuccessMsg(
-                                    `Market canister created and code installed successfully with ID: ${canisterId}\n\n` +
-                                    `Market is now ready for trading!`
-                                );
-                            }
-                        } catch (err) {
-                            console.error("Error installing WASM code:", err);
-                            setSuccessMsg(
-                                `Market canister created successfully with ID: ${canisterId}\n\n` +
-                                `IMPORTANT: You must initialize this canister with binary option market code.\n` +
-                                `Run this command in the terminal:\n` +
-                                `./deploy-market.sh ${canisterId} ${strikePriceNum} ${endTimestampSeconds} ${Math.round(validatedFeePercentage)} "${tradingPair}"`
-                            );
-                        }
+                        setSuccessMsg(
+                            `Market canister created successfully with ID: ${canisterId}\n\n` +
+                            `Market is now ready for trading!`
+                        );
 
                         if (onSuccess) {
                             onSuccess(canisterId);
@@ -385,7 +365,7 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                             setStrikePrice('');
                             setMarketName('');
                             setDeploymentStage(0); // Reset stage
-                        }, 8000); // Longer delay to give time to copy the command
+                        }, 5000);
                     } else {
                         setErrorMsg(`Failed to deploy market: Invalid canister ID (${canisterId})`);
                         setDeploymentStage(0); // Reset on error
@@ -398,22 +378,14 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
             } else {
                 const errorMessage = 'err' in result ? result.err : "Result is missing canister ID";
 
-                // Provide more user-friendly error messages based on the error content
                 if (typeof errorMessage === 'string') {
                     if (errorMessage.includes("type") || errorMessage.includes("argument")) {
-                        setErrorMsg(`Type error in market parameters: ${errorMessage}. Please check that all values are valid.`);
+                        console.error("Detailed parameter error:", errorMessage);
+                        setErrorMsg(`Type error in market parameters: ${errorMessage}. The order of parameters may be incorrect or the value types don't match what's expected.`);
                     } else if (errorMessage.includes("cycles")) {
-                        setErrorMsg(
-                            `Deployment failed due to insufficient cycles: ${errorMessage}\n\n` +
-                            `This means the factory canister has run out of cycles, which are required to create new markets. ` +
-                            `Please contact the administrator to add more cycles to the factory canister.`
-                        );
-                    } else if (errorMessage.includes("maturity") || errorMessage.includes("time")) {
-                        setErrorMsg(`Invalid maturity time settings: ${errorMessage}. Please select a valid date and time in the future.`);
-                    } else if (errorMessage.includes("strike price")) {
-                        setErrorMsg(`Invalid strike price: ${errorMessage}. Please enter a valid positive number.`);
-                    } else if (errorMessage.includes("fee")) {
-                        setErrorMsg(`Invalid fee percentage: ${errorMessage}. Please enter a valid percentage between 0.1% and 20%.`);
+                        setErrorMsg(`Deployment failed due to insufficient cycles: ${errorMessage}`);
+                    } else if (errorMessage.includes("expiry") || errorMessage.includes("future")) {
+                        setErrorMsg(`Invalid expiry time: ${errorMessage}. Please select a valid date and time in the future.`);
                     } else {
                         setErrorMsg(`Failed to deploy market: ${errorMessage}`);
                     }
@@ -425,20 +397,7 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
             }
         } catch (error) {
             console.error('Unexpected deploy error:', error);
-
-            // Provide user-friendly error message based on error type
-            if (error instanceof Error) {
-                if (error.message.includes("Internet connection")) {
-                    setErrorMsg(`Network error: Please check your internet connection and try again.`);
-                } else if (error.message.includes("timeout")) {
-                    setErrorMsg(`Request timed out: The operation took too long. Please try again later.`);
-                } else {
-                    setErrorMsg(`An unexpected error occurred: ${error.message}`);
-                }
-            } else {
-                setErrorMsg(`An unknown error occurred. Please try again later.`);
-            }
-
+            setErrorMsg(`An unexpected error occurred: ${error instanceof Error ? error.message : String(error)}`);
             setDeploymentStage(0); // Reset on error
         } finally {
             setIsLoading(false);
@@ -474,12 +433,6 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                             where users can bid on whether the price will be above (LONG) or below (SHORT)
                             the strike price at maturity. The fee you set (between 0.1% and 20%) will be
                             applied to winning positions and distributed to you as the market creator.
-                        </Typography>
-                        <Typography variant="body2" color="white" sx={{ mt: 2, fontWeight: 'bold' }}>
-                            Tip: After creating a market, you can use our helper script to initialize it:
-                            <Box component="span" sx={{ display: 'block', bgcolor: 'rgba(0,0,0,0.2)', p: 1, mt: 1, borderRadius: 1, fontFamily: 'monospace' }}>
-                                ./deploy-market.sh CANISTER_ID STRIKE_PRICE MATURITY_TIME
-                            </Box>
                         </Typography>
                     </GradientBox>
 
@@ -523,7 +476,10 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                             value={strikePrice}
                             onChange={(e) => {
                                 const value = e.target.value;
-                                if (/^\d*$/.test(value)) {
+                                // Better regex for decimal numbers
+                                // Allows: empty, single digit, numbers with decimal points
+                                // Examples: "", "5", "123", "0.5", "123.45"
+                                if (/^(\d*\.?\d*)?$/.test(value)) {
                                     setStrikePrice(value);
                                 }
                             }}
@@ -532,6 +488,9 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                                 endAdornment: <InputAdornment position="end">$</InputAdornment>,
                             }}
                         />
+                        <Typography color="text.secondary" variant="caption" sx={{ mt: 0.5, display: 'block' }}>
+                            The strike price can include decimal points (e.g., 2000.50).
+                        </Typography>
                     </Box>
 
                     <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -685,7 +644,10 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
 
                             <Box sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.03)', borderRadius: 1 }}>
                                 <Typography variant="body2" color="white">
-                                    Note: When creating a market, you're establishing a binary options contract where users can bid on whether the price will be above (LONG) or below (SHORT) the strike price at maturity. The fee you set (between 0.1% and 20%) will be applied to winning positions and distributed to you as the market creator.
+                                    Note: When creating a market, you're establishing a binary options contract
+                                    where users can bid on whether the price will be above (LONG) or below (SHORT)
+                                    the strike price at maturity. The fee you set (between 0.1% and 20%) will be
+                                    applied to winning positions and distributed to you as the market creator.
                                 </Typography>
                             </Box>
                         </GradientBox>

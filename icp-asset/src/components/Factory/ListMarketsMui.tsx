@@ -13,10 +13,12 @@ import {
     Card,
     CardContent,
     CardActions,
-    Divider
+    Divider,
+    Tabs,
+    Tab
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { FaSync } from 'react-icons/fa';
+import { FaSync, FaCoins, FaChartLine } from 'react-icons/fa';
 import { useRouter } from 'next/router';
 import { FactoryApiService } from '../../service/FactoryService';
 
@@ -28,7 +30,7 @@ const GradientPaper = styled(Paper)(({ theme }) => ({
     boxShadow: theme.shadows[10],
 }));
 
-const MarketCard = styled(Card)(({ theme }) => ({
+const ContractCard = styled(Card)(({ theme }) => ({
     background: 'rgba(35, 43, 61, 0.8)',
     borderRadius: theme.shape.borderRadius * 2,
     boxShadow: theme.shadows[5],
@@ -65,20 +67,30 @@ const CodeDisplay = styled(Paper)(({ theme }) => ({
     },
 }));
 
-interface Market {
-    name: string;
-    market_type: string;
-    canister_id: string;
-    status?: string;
-    strikePrice?: string;
-    maturityDate?: string;
+// Common contract interface
+interface Contract {
+    title: string;
+    address: any; // Principal
+    type: any; // ContractType
+    created: bigint;
+    owner: any; // Principal
 }
 
-// Simple interface for our factory service response
-interface MarketResponse {
+// Transformed contracts for display
+interface DisplayContract {
     name: string;
-    market_type: string;
+    contract_type: string;
     canister_id: string;
+    status?: string;
+    created?: string;
+    owner?: string;
+    // Market-specific fields
+    strikePrice?: string;
+    maturityDate?: string;
+    // Token-specific fields
+    symbol?: string;
+    decimals?: number;
+    totalSupply?: string;
 }
 
 // Props interface for ListMarkets component
@@ -88,57 +100,100 @@ interface ListMarketsProps {
 }
 
 const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 }) => {
-    const [markets, setMarkets] = useState<Market[]>([]);
+    const [contracts, setContracts] = useState<DisplayContract[]>([]);
+    const [markets, setMarkets] = useState<DisplayContract[]>([]);
+    const [tokens, setTokens] = useState<DisplayContract[]>([]);
     const [rawData, setRawData] = useState<string>('');
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState(0); // 0 = All, 1 = Markets, 2 = Tokens
     const router = useRouter();
     const factoryService = new FactoryApiService();
 
     useEffect(() => {
         console.log("ListMarkets component mounted");
-        fetchMarkets();
+        fetchContracts();
     }, []);
 
-    const fetchMarkets = async () => {
-        console.log("Starting to fetch markets...");
+    const fetchContracts = async () => {
+        console.log("Starting to fetch contracts...");
         setIsLoading(true);
         setError(null);
         try {
-            console.log("Calling factoryService.listMarkets()");
-            const result = await factoryService.listMarkets();
-            console.log("Markets API response:", result);
+            console.log("Calling factoryService.getAllContracts()");
+            const result = await factoryService.getAllContracts();
+            console.log("Contracts API response:", result);
             setRawData(JSON.stringify(result, null, 2));
 
-            if ('ok' in result && result.ok) {
-                console.log("Successfully fetched markets:", result.ok);
+            if (result.ok) {
+                console.log("Successfully fetched contracts:", result.ok);
                 if (result.ok.length === 0) {
-                    console.log("No markets found in the response");
+                    console.log("No contracts found in the response");
                 }
 
-                // Transform the data to include status, strike price, and maturity date
-                const fetchedMarkets: Market[] = result.ok.map((market: MarketResponse) => {
-                    console.log("Processing market:", market);
-                    return {
-                        ...market,
-                        status: Math.random() > 0.5 ? 'active' : Math.random() > 0.5 ? 'settled' : 'expired',
-                        strikePrice: `$${(Math.random() * 1000).toFixed(2)}`,
-                        maturityDate: new Date(Date.now() + Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString()
+                // Transform the contracts for display
+                const allContracts: DisplayContract[] = result.ok.map((contract: Contract) => {
+                    console.log("Processing contract:", contract);
+
+                    // Determine contract type
+                    let contractType = 'Unknown';
+                    if (contract.type && typeof contract.type === 'object') {
+                        if ('BinaryOptionMarket' in contract.type) {
+                            contractType = 'BinaryOptionMarket';
+                        } else if ('ICRC1Token' in contract.type) {
+                            contractType = 'ICRC1Token';
+                        } else if ('Other' in contract.type) {
+                            contractType = 'Other';
+                        }
+                    }
+
+                    // Base contract info
+                    const displayContract: DisplayContract = {
+                        name: contract.title || 'Unnamed Contract',
+                        contract_type: contractType,
+                        canister_id: contract.address.toString(),
+                        created: new Date(Number(contract.created) / 1000000).toLocaleString(),
+                        owner: contract.owner.toString(),
+                        status: Math.random() > 0.5 ? 'active' : Math.random() > 0.5 ? 'pending' : 'completed'
                     };
+
+                    // Add type-specific mock data
+                    if (contractType === 'BinaryOptionMarket') {
+                        displayContract.strikePrice = `$${(Math.random() * 1000).toFixed(2)}`;
+                        displayContract.maturityDate = new Date(Date.now() + Math.random() * 30 * 24 * 60 * 60 * 1000).toLocaleDateString();
+                    } else if (contractType === 'ICRC1Token') {
+                        displayContract.symbol = contract.title.split(' ')[0].substring(0, 4).toUpperCase();
+                        displayContract.decimals = 8;
+                        displayContract.totalSupply = (Math.random() * 1000000).toFixed(0);
+                    }
+
+                    return displayContract;
                 });
-                console.log("Processed markets:", fetchedMarkets);
-                setMarkets(fetchedMarkets);
+
+                console.log("Processed contracts:", allContracts);
+
+                // Filter contracts by type
+                const marketContracts = allContracts.filter(c => c.contract_type === 'BinaryOptionMarket');
+                const tokenContracts = allContracts.filter(c => c.contract_type === 'ICRC1Token');
+
+                setContracts(allContracts);
+                setMarkets(marketContracts);
+                setTokens(tokenContracts);
             } else {
                 console.error("Error from API:", result.err);
-                setError('Failed to fetch markets: ' + (result.err || 'Unknown error'));
+                setError('Failed to fetch contracts: ' + (result.err || 'Unknown error'));
             }
         } catch (err) {
             console.error("Exception occurred:", err);
             setError('An unexpected error occurred');
         } finally {
             setIsLoading(false);
-            console.log("Finished fetching markets");
+            console.log("Finished fetching contracts");
         }
+    };
+
+    const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+        setActiveTab(newValue);
     };
 
     // Helper to format date strings
@@ -157,15 +212,20 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
         }
     };
 
-    const navigateToMarket = (marketId: string) => {
-        console.log("Navigating to market:", marketId);
+    const navigateToContract = (contractId: string, contractType: string) => {
+        console.log(`Navigating to ${contractType}:`, contractId);
         try {
             if (typeof window !== 'undefined') {
-                window.location.href = `/?marketId=${marketId}`;
+                if (contractType === 'BinaryOptionMarket') {
+                    window.location.href = `/?marketId=${contractId}`;
+                } else if (contractType === 'ICRC1Token') {
+                    window.location.href = `/?tokenId=${contractId}`;
+                } else {
+                    window.location.href = `/?canisterId=${contractId}`;
+                }
             }
         } catch (error) {
             console.error("Navigation error:", error);
-            window.location.href = `/?marketId=${marketId}`;
         }
     };
 
@@ -173,9 +233,19 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
     const getBadgeColor = (status: string) => {
         const statusLower = status?.toLowerCase() || '';
         if (statusLower === 'active') return 'success';
-        if (statusLower === 'settled') return 'primary';
-        if (statusLower === 'expired') return 'error';
+        if (statusLower === 'pending') return 'warning';
+        if (statusLower === 'completed') return 'primary';
         return 'default';
+    };
+
+    // Get the active contracts list based on tab
+    const getActiveContracts = () => {
+        switch (activeTab) {
+            case 0: return contracts;
+            case 1: return markets;
+            case 2: return tokens;
+            default: return contracts;
+        }
     };
 
     return (
@@ -183,115 +253,137 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
             <GradientPaper>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                     <Typography variant="h5" component="h2" color="white">
-                        Available Markets
+                        Contract Explorer
                     </Typography>
                     <StyledButton
                         startIcon={<FaSync />}
-                        onClick={fetchMarkets}
+                        onClick={fetchContracts}
                         disabled={isLoading}
                     >
                         Refresh
                     </StyledButton>
                 </Box>
 
+                <Tabs
+                    value={activeTab}
+                    onChange={handleTabChange}
+                    indicatorColor="primary"
+                    textColor="primary"
+                    sx={{ mb: 3 }}
+                >
+                    <Tab label="All Contracts" />
+                    <Tab label="Markets" icon={<FaChartLine />} iconPosition="start" />
+                    <Tab label="Tokens" icon={<FaCoins />} iconPosition="start" />
+                </Tabs>
+
                 {isLoading ? (
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 5 }}>
                         <CircularProgress sx={{ mb: 2, color: '#6A83E8' }} />
-                        <Typography color="grey.300">Loading markets...</Typography>
+                        <Typography color="grey.300">Loading contracts...</Typography>
                     </Box>
                 ) : error ? (
-                    <Alert severity="error" sx={{
-                        backgroundColor: 'rgba(211, 47, 47, 0.1)',
-                        color: '#f44336',
-                        '.MuiAlert-icon': { color: '#f44336' }
-                    }}>
+                    <Alert severity="error" sx={{ mb: 3 }}>
                         <AlertTitle>Error</AlertTitle>
                         {error}
-                        <CodeDisplay sx={{ mt: 2 }}>
-                            <pre>{rawData || "No response data"}</pre>
-                        </CodeDisplay>
                     </Alert>
-                ) : markets.length === 0 ? (
-                    <Box sx={{ textAlign: 'center', py: 5 }}>
-                        <Typography color="grey.300" variant="h6">No markets found</Typography>
-                        <Typography color="grey.500" sx={{ mt: 1 }}>
-                            Markets you deploy will appear here
-                        </Typography>
-                        <CodeDisplay sx={{ mt: 3, mx: 'auto', maxWidth: '100%' }}>
-                            <pre>{rawData || "No response data"}</pre>
-                        </CodeDisplay>
-                    </Box>
+                ) : getActiveContracts().length === 0 ? (
+                    <Alert severity="info" sx={{ mb: 3 }}>
+                        <AlertTitle>No Contracts Found</AlertTitle>
+                        {activeTab === 0 && "No contracts have been deployed yet."}
+                        {activeTab === 1 && "No markets have been deployed yet."}
+                        {activeTab === 2 && "No tokens have been deployed yet."}
+                    </Alert>
                 ) : (
-                    <>
-                        <Grid container spacing={3}>
-                            {markets.map((market) => (
-                                <Grid item xs={12} md={6} lg={4} key={market.canister_id}>
-                                    <MarketCard>
-                                        <CardContent sx={{ p: 3 }}>
-                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                                                <Typography variant="h6" color="white" noWrap sx={{ maxWidth: '70%' }}>
-                                                    {market.name}
+                    <Grid container spacing={3}>
+                        {getActiveContracts().map((contract) => (
+                            <Grid item xs={12} md={6} lg={4} key={contract.canister_id}>
+                                <ContractCard>
+                                    <CardContent>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                                            <Typography variant="h6" color="white" noWrap sx={{ maxWidth: '70%' }}>
+                                                {contract.name}
+                                            </Typography>
+                                            <Chip
+                                                label={contract.status}
+                                                color={getBadgeColor(contract.status || '')}
+                                                size="small"
+                                            />
+                                        </Box>
+
+                                        <Divider sx={{ my: 1, bgcolor: 'rgba(255,255,255,0.1)' }} />
+
+                                        <Stack spacing={1} sx={{ mt: 2 }}>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">Type</Typography>
+                                                <Typography variant="body2" color="white">
+                                                    {contract.contract_type === 'BinaryOptionMarket' ? 'Binary Market' :
+                                                        contract.contract_type === 'ICRC1Token' ? 'ICRC-1 Token' :
+                                                            contract.contract_type}
                                                 </Typography>
-                                                {market.status && (
-                                                    <Chip
-                                                        label={market.status}
-                                                        color={getBadgeColor(market.status) as any}
-                                                        size="small"
-                                                    />
-                                                )}
                                             </Box>
 
-                                            <Stack spacing={1.5}>
-                                                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                    <Typography color="grey.500">Type:</Typography>
-                                                    <Typography color="white" fontWeight="medium">{market.market_type}</Typography>
-                                                </Box>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">Created</Typography>
+                                                <Typography variant="body2" color="white">{contract.created}</Typography>
+                                            </Box>
 
-                                                {market.strikePrice && (
+                                            {contract.contract_type === 'BinaryOptionMarket' && (
+                                                <>
                                                     <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                        <Typography color="grey.500">Strike Price:</Typography>
-                                                        <Typography color="white" fontWeight="medium">{market.strikePrice}</Typography>
+                                                        <Typography variant="body2" color="text.secondary">Strike Price</Typography>
+                                                        <Typography variant="body2" color="white">{contract.strikePrice}</Typography>
                                                     </Box>
-                                                )}
-
-                                                {market.maturityDate && (
                                                     <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                        <Typography color="grey.500">Maturity Date:</Typography>
-                                                        <Typography color="white" fontWeight="medium">{formatDate(market.maturityDate)}</Typography>
+                                                        <Typography variant="body2" color="text.secondary">Maturity</Typography>
+                                                        <Typography variant="body2" color="white">{contract.maturityDate}</Typography>
                                                     </Box>
-                                                )}
+                                                </>
+                                            )}
 
-                                                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                    <Typography color="grey.500">Canister ID:</Typography>
-                                                    <Typography color="white" fontWeight="medium" noWrap sx={{ maxWidth: '150px' }}>
-                                                        {market.canister_id}
-                                                    </Typography>
-                                                </Box>
-                                            </Stack>
-                                        </CardContent>
+                                            {contract.contract_type === 'ICRC1Token' && (
+                                                <>
+                                                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                        <Typography variant="body2" color="text.secondary">Symbol</Typography>
+                                                        <Typography variant="body2" color="white">{contract.symbol}</Typography>
+                                                    </Box>
+                                                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                        <Typography variant="body2" color="text.secondary">Decimals</Typography>
+                                                        <Typography variant="body2" color="white">{contract.decimals}</Typography>
+                                                    </Box>
+                                                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                        <Typography variant="body2" color="text.secondary">Supply</Typography>
+                                                        <Typography variant="body2" color="white">{contract.totalSupply}</Typography>
+                                                    </Box>
+                                                </>
+                                            )}
 
-                                        <Divider sx={{ backgroundColor: 'rgba(255, 255, 255, 0.1)' }} />
-
-                                        <CardActions sx={{ p: 2 }}>
-                                            <StyledButton
-                                                fullWidth
-                                                onClick={() => navigateToMarket(market.canister_id)}
-                                            >
-                                                View Market
-                                            </StyledButton>
-                                        </CardActions>
-                                    </MarketCard>
-                                </Grid>
-                            ))}
-                        </Grid>
-
-                        <Box sx={{ mt: 4 }}>
-                            <Typography color="grey.500" variant="subtitle2" sx={{ mb: 1 }}>Debug - API Response:</Typography>
-                            <CodeDisplay>
-                                <pre>{rawData || "No response data"}</pre>
-                            </CodeDisplay>
-                        </Box>
-                    </>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">ID</Typography>
+                                                <Typography variant="body2" color="white" sx={{
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    maxWidth: '70%'
+                                                }}>
+                                                    {contract.canister_id}
+                                                </Typography>
+                                            </Box>
+                                        </Stack>
+                                    </CardContent>
+                                    <CardActions sx={{ p: 2, pt: 0 }}>
+                                        <StyledButton
+                                            size="small"
+                                            fullWidth
+                                            onClick={() => navigateToContract(contract.canister_id, contract.contract_type)}
+                                        >
+                                            {contract.contract_type === 'BinaryOptionMarket' ? 'Trade Market' :
+                                                contract.contract_type === 'ICRC1Token' ? 'View Token' :
+                                                    'View Details'}
+                                        </StyledButton>
+                                    </CardActions>
+                                </ContractCard>
+                            </Grid>
+                        ))}
+                    </Grid>
                 )}
             </GradientPaper>
         </Box>

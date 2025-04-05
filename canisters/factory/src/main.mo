@@ -117,7 +117,7 @@ actor Factory {
         }
     };
     
-    // Function to fetch WASM module from DFINITY
+    // Function to fetch WASM module from GitHub
     private func fetchWasmModule() : async Result.Result<(), Text> {
         if (isWasmModuleFetching) {
             return #err("WASM module fetch already in progress");
@@ -126,13 +126,13 @@ actor Factory {
         isWasmModuleFetching := true;
 
         try {
-            Debug.print("Fetching ICRC-1 ledger WASM module from DFINITY...");
+            Debug.print("Fetching Binary Option Market WASM module from GitHub...");
 
             // Add cycles for the HTTP outcall
             Cycles.add(230_949_972_000);
 
-            // Official DFINITY URL for ICRC-1 ledger WASM
-            let wasmUrl = "https://download.dfinity.systems/ic/d87954601e4b22972899e9957e800406a0a6b929/canisters/ic-icrc1-ledger.wasm.gz";
+            // GitHub URL for binary option market WASM
+            let wasmUrl = "https://raw.githubusercontent.com/mangekyou-labs/oreka/feat/add-factory-canister/canisters/binary_option_market/build/binary_option_market.wasm";
 
             let transform_context : TransformContext = {
                 function = transform;
@@ -157,12 +157,12 @@ actor Factory {
                 return #err("Failed to fetch WASM module: HTTP status " # Nat.toText(response.status));
             };
 
-            // Store the WASM module (note: it will be gzipped, in production we'd need to handle decompression)
+            // Store the WASM module
             binaryOptionMarketWasm := ?Blob.fromArray(response.body);
             wasmModuleStable := ?response.body;
             isWasmModuleFetching := false;
 
-            Debug.print("ICRC-1 ledger WASM module fetched successfully");
+            Debug.print("Binary Option Market WASM module fetched successfully");
             return #ok(());
         } catch (e) {
             isWasmModuleFetching := false;
@@ -187,49 +187,50 @@ actor Factory {
         };
     };
     
-    // Deploy function to create a new ICRC-1 token ledger
-    public shared(msg) func deployToken(
+    // Type for candid encoding
+    type MarketInitArgs = {
+        name: Text;
+        description: Text;
+        underlying: Text;
+        expiry: Nat64;
+        marketType: Text;
+        owner: Principal;
+    };
+    
+    // Function for deploying a binary option market
+    public shared(msg) func deployMarket(
         name: Text,
-        symbol: Text,
-        decimals: Nat8,
-        initialSupply: Nat,
-        fee: Nat
+        strike_price: Float,
+        expiry: Nat64
     ) : async Result.Result<Principal, Text> {
         let caller = msg.caller;
         
-        // Input validation first
+        // Input validation
         if (Text.size(name) == 0) {
-            Debug.print("Error: Token name cannot be empty");
-            return #err("Token name cannot be empty");
+            Debug.print("Error: Market name cannot be empty");
+            return #err("Market name cannot be empty");
         };
         
-        if (Text.size(symbol) == 0) {
-            Debug.print("Error: Token symbol cannot be empty");
-            return #err("Token symbol cannot be empty");
+        if (strike_price <= 0) {
+            Debug.print("Error: Strike price must be positive");
+            return #err("Strike price must be positive");
         };
         
-        if (decimals > 18) {
-            Debug.print("Error: Decimals should be between 0 and 18");
-            return #err("Decimals should be between 0 and 18");
-        };
-
-        if (fee > initialSupply / 10) { // Arbitrary check that fee is not more than 10% of initial supply
-            Debug.print("Error: Fee is too high compared to initial supply");
-            return #err("Fee is too high compared to initial supply");
+        if (expiry <= Nat64.fromNat(Int.abs(Time.now() / 1_000_000_000))) {
+            Debug.print("Error: Expiry must be in the future");
+            return #err("Expiry must be in the future");
         };
         
         try {
-            Debug.print("Deploying ICRC-1 token with parameters:");
+            Debug.print("Deploying binary option market with parameters:");
             Debug.print("Name: " # name);
-            Debug.print("Symbol: " # symbol);
-            Debug.print("Decimals: " # Nat8.toText(decimals));
-            Debug.print("Initial Supply: " # Nat.toText(initialSupply));
-            Debug.print("Fee: " # Nat.toText(fee));
+            Debug.print("Strike Price: " # Float.toText(strike_price));
+            Debug.print("Expiry: " # Nat64.toText(expiry));
             
             // Check if we have the WASM module cached, if not fetch it
             switch (binaryOptionMarketWasm) {
                 case (null) {
-                    Debug.print("No cached WASM module found, fetching from DFINITY...");
+                    Debug.print("No cached WASM module found, fetching from GitHub...");
                     let fetchResult = await fetchWasmModule();
                     switch (fetchResult) {
                         case (#err(errMsg)) {
@@ -254,7 +255,7 @@ actor Factory {
             };
             
             // Add cycles for new canister creation
-            let requiredCycles = 2_000_000_000_000; // 2T cycles for ledger canister
+            let requiredCycles = 2_000_000_000_000; // 2T cycles for market canister
             Debug.print("Adding " # Nat.toText(requiredCycles) # " cycles for canister creation");
             Cycles.add(requiredCycles);
             
@@ -279,13 +280,55 @@ actor Factory {
             });
             Debug.print("Controllers set successfully");
             
-            // Create init args for ICRC-1 token
-            // Note: In production, we'd need proper Candid encoding
-            // For now, we'll just create a token and record its ID
+            // Install the binary option market WASM module
+            Debug.print("Installing binary option market WASM module...");
             
-            Debug.print("In a production environment, we would install the ICRC-1 WASM module here.");
-            Debug.print("For testing, we'll just record the canister ID and skip the installation.");
-            Debug.print("Token would be initialized with name: " # name # ", symbol: " # symbol);
+            // Default fee percentage (1%)
+            let feePercentage : Nat = 1;
+            
+            // Use a default trading pair if not provided
+            let underlying : Text = "BTC";
+            
+            Debug.print("Initializing market with parameters:");
+            Debug.print("Strike Price: " # Float.toText(strike_price));
+            Debug.print("Expiry: " # Nat64.toText(expiry));
+            Debug.print("Trading Pair: " # underlying);
+            Debug.print("Fee Percentage: " # Nat.toText(feePercentage));
+            
+            // For direct initialization, we'll use the canonical constructor arguments
+            // without trying to manually encode Candid format
+            try {
+                // The ic.install_code method doesn't require us to encode the arguments in Candid format
+                // It handles that for us when we pass the raw values
+                let initArgs = {
+                    strike_price = strike_price;
+                    expiry = expiry;
+                    trading_pair = underlying;
+                    fee_percentage = feePercentage;
+                };
+                
+                // Convert to blob using serialization (this is just for logging)
+                let initArgsBlob = to_candid(
+                    strike_price,  // float64
+                    expiry,       // nat64
+                    underlying,   // text
+                    feePercentage // nat
+                );
+                
+                Debug.print("Installing WASM with init args");
+                
+                await ic.install_code({
+                    arg = initArgsBlob;
+                    wasm_module = wasmModule;
+                    mode = #install;
+                    canister_id = canister_id;
+                });
+                
+                Debug.print("WASM module installed successfully with init arguments");
+            } catch (e) {
+                Debug.print("Error installing WASM with arguments: " # Error.message(e));
+                return #err("Failed to install market WASM: " # Error.message(e));
+            };
             
             // Add to owner's contracts
             var contracts = switch (ownerContracts.get(caller)) {
@@ -310,7 +353,7 @@ actor Factory {
                 owner = caller;
                 createdAt = Nat64.fromNat(Int.abs(Time.now() / 1_000_000_000));
                 name = name;
-                contractType = #Other(symbol);
+                contractType = #BinaryOptionMarket;
             };
             
             Debug.print("Adding contract to global contracts list");
@@ -327,11 +370,11 @@ actor Factory {
             Debug.print("Recording deployment event");
             deployEvents.add(event);
             
-            Debug.print("Token deployment completed successfully");
+            Debug.print("Market deployment completed successfully");
             return #ok(canister_id);
         } catch (e) {
             let errorMsg = Error.message(e);
-            Debug.print("Error deploying token: " # errorMsg);
+            Debug.print("Error deploying market: " # errorMsg);
             
             // Provide more detailed error messages based on common error patterns
             if (Text.contains(errorMsg, #text "cycles")) {
@@ -341,7 +384,7 @@ actor Factory {
             } else if (Text.contains(errorMsg, #text "create_canister")) {
                 return #err("IC error when creating canister. The subnet may be at capacity.");
             } else {
-                return #err("Failed to deploy token: " # errorMsg);
+                return #err("Failed to deploy market: " # errorMsg);
             }
         }
     };
@@ -444,7 +487,7 @@ actor Factory {
         binaryOptionMarketWasm != null
     };
     
-    // Public function to trigger WASM fetch from DFINITY
+    // Public function to trigger WASM fetch from GitHub
     public shared(msg) func refreshWasmModule() : async Result.Result<(), Text> {
         await fetchWasmModule()
     };
@@ -507,5 +550,82 @@ actor Factory {
         deployEvents := Buffer.Buffer<DeployEvent>(0);
         
         #ok(())
+    };
+    
+    // Function to add an external contract that was not created by this factory
+    public shared(msg) func addExternalContract(
+        name: Text,
+        canisterId: Principal,
+        contractType: ContractType
+    ) : async Result.Result<(), Text> {
+        let caller = msg.caller;
+        
+        // Input validation
+        if (Text.size(name) == 0) {
+            Debug.print("Error: Contract name cannot be empty");
+            return #err("Contract name cannot be empty");
+        };
+        
+        // Check if the contract already exists in our records
+        for (contract in allContracts.vals()) {
+            if (Principal.equal(contract.canisterId, canisterId)) {
+                Debug.print("Error: Contract already registered");
+                return #err("Contract already registered");
+            };
+        };
+        
+        try {
+            Debug.print("Registering external contract:");
+            Debug.print("Name: " # name);
+            Debug.print("Canister ID: " # Principal.toText(canisterId));
+            Debug.print("Contract Type: " # debug_show(contractType));
+            
+            // Add to owner's contracts
+            var contracts = switch (ownerContracts.get(caller)) {
+                case null {
+                    Debug.print("Creating new contract buffer for owner");
+                    let newBuffer = Buffer.Buffer<ContractAddress>(0);
+                    ownerContracts.put(caller, newBuffer);
+                    newBuffer;
+                };
+                case (?existing) { 
+                    Debug.print("Using existing contract buffer for owner");
+                    existing 
+                };
+            };
+            
+            Debug.print("Adding canister to owner's contracts");
+            contracts.add(canisterId);
+            
+            // Add to all contracts
+            let contractDetails: Contract = {
+                canisterId = canisterId;
+                owner = caller;
+                createdAt = Nat64.fromNat(Int.abs(Time.now() / 1_000_000_000));
+                name = name;
+                contractType = contractType;
+            };
+            
+            Debug.print("Adding contract to global contracts list");
+            allContracts.add(contractDetails);
+            
+            // Create event
+            let event: DeployEvent = {
+                owner = caller;
+                contractAddress = canisterId;
+                index = contracts.size() - 1;
+                timestamp = contractDetails.createdAt;
+            };
+            
+            Debug.print("Recording deployment event");
+            deployEvents.add(event);
+            
+            Debug.print("External contract registration completed successfully");
+            return #ok();
+        } catch (e) {
+            let errorMsg = Error.message(e);
+            Debug.print("Error registering external contract: " # errorMsg);
+            return #err("Failed to register external contract: " # errorMsg);
+        }
     };
 } 

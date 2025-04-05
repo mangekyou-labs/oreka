@@ -1,103 +1,112 @@
 #!/bin/bash
-set -e
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}=== ICRC-1 Token Creation Test ===${NC}"
 
 # Check if dfx is running
-if ! dfx ping; then
-  echo "Error: dfx is not running. Please start the local replica with 'dfx start' in another terminal."
-  exit 1
+echo -e "${YELLOW}Checking if dfx is running...${NC}"
+dfx ping
+if [ $? -ne 0 ]; then
+    echo -e "${RED}ERROR: dfx is not running. Please start dfx with 'dfx start' and try again.${NC}"
+    exit 1
 fi
 
-# Get factory canister ID
-FACTORY_ID=$(dfx canister id factory)
-echo "Using factory canister ID: $FACTORY_ID"
+# Get the factory canister ID
+FACTORY_CANISTER_ID=$(dfx canister id factory)
+echo -e "${GREEN}Using factory canister ID: ${FACTORY_CANISTER_ID}${NC}"
 
 # Check if WASM module is available
-echo "Checking if WASM module is available..."
-WASM_AVAILABLE=$(dfx canister call factory isWasmModuleAvailable)
-echo "WASM module available: $WASM_AVAILABLE"
+echo -e "${YELLOW}Checking if ICRC-1 WASM module is available...${NC}"
+MODULE_AVAILABLE=$(dfx canister call factory isWasmModuleAvailable '("icrc1_ledger")')
 
-# If WASM module is not available, trigger HTTP outcall to fetch it
-if [[ "$WASM_AVAILABLE" == "(false)" ]]; then
-  echo "WASM module not available. Triggering HTTP outcall to fetch it from DFINITY..."
-  
-  # Call refreshWasmModule to trigger HTTP outcall
-  RESULT=$(dfx canister call factory refreshWasmModule)
-  echo "Refresh result: $RESULT"
-  
-  # Wait a moment for the fetch to complete
-  echo "Waiting for WASM module to be fetched..."
-  sleep 3
-  
-  # Check again if WASM module is available
-  echo "Checking if WASM module is available after refresh..."
-  WASM_AVAILABLE=$(dfx canister call factory isWasmModuleAvailable)
-  echo "WASM module available: $WASM_AVAILABLE"
-  
-  if [[ "$WASM_AVAILABLE" == "(false)" ]]; then
-    echo "Error: Failed to fetch WASM module after refresh"
-    echo "Let's try again with more cycles..."
+if [[ $MODULE_AVAILABLE == *"false"* ]]; then
+    echo -e "${YELLOW}WASM module for ICRC-1 is not available. Triggering HTTP outcall to fetch it...${NC}"
     
-    # Add more cycles to the factory canister
-    echo "Adding more cycles to the factory canister..."
-    dfx canister deposit-cycles 1000000000000 $FACTORY_ID
-    
-    # Try refresh again
-    RESULT=$(dfx canister call factory refreshWasmModule)
-    echo "Refresh result after adding cycles: $RESULT"
-    
-    # Wait a moment for the fetch to complete
-    echo "Waiting for WASM module to be fetched..."
-    sleep 3
-    
-    # Check one more time
-    WASM_AVAILABLE=$(dfx canister call factory isWasmModuleAvailable)
-    echo "WASM module available: $WASM_AVAILABLE"
-    
-    if [[ "$WASM_AVAILABLE" == "(false)" ]]; then
-      echo "Error: Failed to fetch WASM module after multiple attempts"
-      exit 1
+    # Check if factory has enough cycles
+    CYCLE_BALANCE=$(dfx canister status factory | grep "Balance:" | awk '{print $2}')
+    if (( $CYCLE_BALANCE < 1000000000000 )); then
+        echo -e "${YELLOW}Adding cycles to factory canister...${NC}"
+        dfx canister deposit-cycles 5000000000000 $FACTORY_CANISTER_ID
     fi
-  fi
+    
+    # Trigger refresh of WASM module
+    echo -e "${YELLOW}Refreshing WASM module...${NC}"
+    dfx canister call factory refreshWasmModule '("icrc1_ledger")'
+    
+    # Wait a moment for the outcall to complete
+    echo -e "${YELLOW}Waiting for module refresh...${NC}"
+    sleep 5
+    
+    # Check again
+    MODULE_AVAILABLE=$(dfx canister call factory isWasmModuleAvailable '("icrc1_ledger")')
+    if [[ $MODULE_AVAILABLE == *"false"* ]]; then
+        echo -e "${RED}ERROR: Failed to fetch ICRC-1 WASM module. Please try again later.${NC}"
+        exit 1
+    fi
 fi
+
+echo -e "${GREEN}ICRC-1 WASM module is available.${NC}"
+
+# Get timestamp for unique token name
+TIMESTAMP=$(date +%s)
 
 # Token parameters
-TOKEN_NAME="Test Token $(date +%s)"
+TOKEN_NAME="Test Token $TIMESTAMP"
 TOKEN_SYMBOL="TST"
 DECIMALS=8
-INITIAL_SUPPLY=1000000000 # 10 tokens with 8 decimals
-FEE=10000 # 0.0001 token fee
+INITIAL_SUPPLY=1000000000
+FEE=10000
 
-echo "Creating token with the following parameters:"
-echo "Name: $TOKEN_NAME"
-echo "Symbol: $TOKEN_SYMBOL"
-echo "Decimals: $DECIMALS"
-echo "Initial Supply: $INITIAL_SUPPLY"
-echo "Fee: $FEE"
-echo ""
+echo -e "${YELLOW}Creating token with parameters:${NC}"
+echo -e "  Name: ${TOKEN_NAME}"
+echo -e "  Symbol: ${TOKEN_SYMBOL}"
+echo -e "  Decimals: ${DECIMALS}"
+echo -e "  Initial Supply: ${INITIAL_SUPPLY}"
+echo -e "  Fee: ${FEE}"
 
-# Deploy the token using the factory canister
-echo "Deploying token using factory canister..."
-RESULT=$(dfx canister call factory deployToken "(\"$TOKEN_NAME\", \"$TOKEN_SYMBOL\", $DECIMALS:nat8, $INITIAL_SUPPLY, $FEE)" 2>&1)
+# Deploy token using factory canister
+echo -e "${YELLOW}Deploying token using factory canister...${NC}"
+RESULT=$(dfx canister call factory deployToken "(\"$TOKEN_NAME\", \"$TOKEN_SYMBOL\", $DECIMALS:nat8, $INITIAL_SUPPLY:nat, $FEE:nat)")
 
-# Check for errors
-if [[ $RESULT == *"error"* ]] || [[ $RESULT == *"err"* ]]; then
-  echo "Error deploying token:"
-  echo "$RESULT"
-  exit 1
+# Check if deployment was successful
+if [[ $RESULT == *"err"* ]]; then
+    echo -e "${RED}ERROR: Token deployment failed:${NC}"
+    echo -e "$RESULT"
+    exit 1
 fi
 
-# Extract the canister ID
-TOKEN_ID=$(echo "$RESULT" | grep -o "principal \"[^\"]*\"" | cut -d '"' -f 2)
+# Extract the token canister ID from the result
+TOKEN_CANISTER_ID=$(echo $RESULT | sed -n 's/.*principal "\([^"]*\)".*/\1/p')
 
-if [ -z "$TOKEN_ID" ]; then
-  echo "Failed to extract token canister ID from output:"
-  echo "$RESULT"
-  exit 1
+if [ -z "$TOKEN_CANISTER_ID" ]; then
+    echo -e "${RED}ERROR: Failed to extract token canister ID from result:${NC}"
+    echo -e "$RESULT"
+    exit 1
 fi
 
-echo "Successfully deployed ICRC-1 token with canister ID: $TOKEN_ID"
-echo ""
-echo "You can access the token at: http://127.0.0.1:4943/?canisterId=br5f7-7uaaa-aaaaa-qaaca-cai&id=$TOKEN_ID"
-echo ""
-echo "To verify the token details, run:"
-echo "dfx canister call factory getContractDetails '(principal \"$TOKEN_ID\")'" 
+echo -e "${GREEN}Token deployed successfully!${NC}"
+echo -e "${GREEN}Token Canister ID: ${TOKEN_CANISTER_ID}${NC}"
+echo -e "${GREEN}You can access your token at: http://localhost:4943/?canisterId=${TOKEN_CANISTER_ID}${NC}"
+echo -e "${BLUE}=== Token Creation Complete ===${NC}"
+
+# Optionally, verify the token details
+echo -e "${YELLOW}Verifying token details...${NC}"
+dfx canister call $TOKEN_CANISTER_ID icrc1_name
+
+echo -e "${YELLOW}Token symbol:${NC}"
+dfx canister call $TOKEN_CANISTER_ID icrc1_symbol
+
+echo -e "${YELLOW}Token decimals:${NC}"
+dfx canister call $TOKEN_CANISTER_ID icrc1_decimals
+
+echo -e "${YELLOW}Token fee:${NC}"
+dfx canister call $TOKEN_CANISTER_ID icrc1_fee
+
+echo -e "${YELLOW}Total supply:${NC}"
+dfx canister call $TOKEN_CANISTER_ID icrc1_total_supply 

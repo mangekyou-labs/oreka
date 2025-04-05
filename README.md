@@ -134,7 +134,7 @@ record {
 dfx deploy factory
 
 # (Optional) Deploy a test market directly for testing
-dfx deploy binary_option_market --argument '(12.0, 1743680750, "ICP-USD", 10)'
+dfx deploy binary_option_market --argument '(12.0, 1743880750, "ICP-USD", 10)'
 
 # optional: deploy test canister
 dfx deploy binary_option_market_test

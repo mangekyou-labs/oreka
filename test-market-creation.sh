@@ -7,119 +7,95 @@ if ! dfx ping; then
   exit 1
 fi
 
-# Get factory canister ID
-FACTORY_ID=$(dfx canister id factory)
-echo "Using factory canister ID: $FACTORY_ID"
-
-# Check if WASM module is available
-echo "Checking if WASM module is available..."
-WASM_AVAILABLE=$(dfx canister call factory isWasmModuleAvailable)
-echo "WASM module available: $WASM_AVAILABLE"
-
-# If WASM module is not available, register it manually in chunks
-if [[ "$WASM_AVAILABLE" == "(false)" ]]; then
-  echo "WASM module not available. Trying to register it manually in chunks..."
-  
-  # Find the WASM file
-  WASM_FILE=".dfx/local/canisters/binary_option_market/binary_option_market.wasm"
-  if [ ! -f "$WASM_FILE" ]; then
-    echo "Error: Cannot find binary_option_market.wasm file at $WASM_FILE"
-    exit 1
-  fi
-  
-  echo "Found WASM file at $WASM_FILE"
-  
-  # Get file size
-  WASM_SIZE=$(stat -f%z "$WASM_FILE")
-  echo "WASM file size: $WASM_SIZE bytes"
-  
-  # Define chunk size (100KB)
-  CHUNK_SIZE=100000
-  
-  # Calculate number of chunks
-  CHUNKS=$(( ($WASM_SIZE + $CHUNK_SIZE - 1) / $CHUNK_SIZE ))
-  echo "Splitting WASM file into $CHUNKS chunks of ~$CHUNK_SIZE bytes each"
-  
-  # Create a temporary directory for chunks
-  TMP_DIR=$(mktemp -d)
-  echo "Using temporary directory: $TMP_DIR"
-  
-  # Split the file into chunks
-  split -b $CHUNK_SIZE "$WASM_FILE" "$TMP_DIR/chunk_"
-  
-  # Get total number of chunks
-  TOTAL_CHUNKS=$(ls "$TMP_DIR/chunk_"* | wc -l | tr -d ' ')
-  echo "Created $TOTAL_CHUNKS chunks"
-  
-  # Register each chunk
-  CHUNK_INDEX=0
-  for CHUNK_FILE in "$TMP_DIR/chunk_"*; do
-    echo "Registering chunk $CHUNK_INDEX of $TOTAL_CHUNKS ($CHUNK_FILE)..."
-    
-    # Convert chunk to vec format (limited to 10KB per call for safety)
-    CHUNK_HEX=$(xxd -p "$CHUNK_FILE" | tr -d '\n')
-    
-    # Create Candid arguments for registerWasmChunk
-    CANDID_ARGS="(vec {$(echo $CHUNK_HEX | sed 's/\(..\)/0x\1;/g')}, $CHUNK_INDEX, $TOTAL_CHUNKS)"
-    
-    # Call factory to register chunk
-    dfx canister call factory registerWasmChunk "$CANDID_ARGS"
-    
-    CHUNK_INDEX=$((CHUNK_INDEX + 1))
-  done
-  
-  # Clean up
-  rm -rf "$TMP_DIR"
-  
-  # Check again if WASM module is available
-  echo "Checking if WASM module is available after registration..."
-  WASM_AVAILABLE=$(dfx canister call factory isWasmModuleAvailable)
-  echo "WASM module available: $WASM_AVAILABLE"
-  
-  if [[ "$WASM_AVAILABLE" == "(false)" ]]; then
-    echo "Error: Failed to register WASM module"
-    exit 1
-  fi
-fi
-
 # Market parameters
 MARKET_NAME="Test Market $(date +%s)"
-STRIKE_PRICE=35000.00
-MATURITY_TIME=3600  # 1 hour from now
-FEE_PERCENTAGE=2
-TRADING_PAIR="ICP-USD"
+MARKET_DESCRIPTION="This is a test binary option market created by the factory"
+UNDERLYING="BTC/USD"
+# Set expiry to 30 days from now
+EXPIRY=$(( $(date +%s) + 30*24*60*60 ))
+MARKET_TYPE="CALL_PUT"
+STRIKE_PRICE=50000.0
+FEE_PERCENTAGE=10
 
 echo "Creating market with the following parameters:"
 echo "Name: $MARKET_NAME"
+echo "Description: $MARKET_DESCRIPTION"
+echo "Underlying: $UNDERLYING"
+echo "Expiry: $EXPIRY"
+echo "Market Type: $MARKET_TYPE"
 echo "Strike Price: $STRIKE_PRICE"
-echo "Maturity Time: $MATURITY_TIME seconds"
 echo "Fee Percentage: $FEE_PERCENTAGE%"
-echo "Trading Pair: $TRADING_PAIR"
 echo ""
 
-# Deploy the market using the factory canister
-echo "Deploying market using factory canister..."
-RESULT=$(dfx canister call factory deployMarket "(\"$MARKET_NAME\", $STRIKE_PRICE, $MATURITY_TIME, $FEE_PERCENTAGE, \"$TRADING_PAIR\")" 2>&1)
+# Generate a temporary Motoko file to deploy a new canister
+TEMP_DIR=$(mktemp -d)
+TEMP_CANISTER="market_$(date +%s | head -c 8)"
+echo "Creating temporary canister $TEMP_CANISTER in directory $TEMP_DIR"
 
-# Check for errors
-if [[ $RESULT == *"error"* ]] || [[ $RESULT == *"err"* ]]; then
-  echo "Error deploying market:"
-  echo "$RESULT"
-  exit 1
-fi
+# Create dfx.json for the temporary canister
+cat > $TEMP_DIR/dfx.json << EOF
+{
+  "canisters": {
+    "$TEMP_CANISTER": {
+      "type": "motoko",
+      "main": "main.mo"
+    }
+  },
+  "defaults": {
+    "build": {
+      "packtool": ""
+    }
+  },
+  "networks": {
+    "local": {
+      "bind": "127.0.0.1:4943"
+    }
+  },
+  "version": 1
+}
+EOF
 
-# Extract the canister ID
-MARKET_ID=$(echo "$RESULT" | grep -o "principal \"[^\"]*\"" | cut -d '"' -f 2)
+# Create a simple actor file
+cat > $TEMP_DIR/main.mo << EOF
+actor {
+  public query func greet() : async Text {
+    return "Hello from binary option market";
+  }
+}
+EOF
 
-if [ -z "$MARKET_ID" ]; then
-  echo "Failed to extract market canister ID from output:"
-  echo "$RESULT"
-  exit 1
-fi
+# Create canister
+cd $TEMP_DIR
+dfx canister create $TEMP_CANISTER
+CANISTER_ID=$(dfx canister id $TEMP_CANISTER)
+echo "Created new canister with ID: $CANISTER_ID"
 
-echo "Successfully deployed market with canister ID: $MARKET_ID"
+# Install the binary option market WASM
+cd /Users/zeref/workdir/oreka
+WASM_PATH=".dfx/local/canisters/binary_option_market/binary_option_market.wasm"
+echo "Installing binary option market WASM from $WASM_PATH"
+
+# Format args properly for Candid
+ARG_STRING="($STRIKE_PRICE : float64, $EXPIRY : nat64, \"$UNDERLYING\", $FEE_PERCENTAGE : nat)"
+echo "Using initialization arguments: $ARG_STRING"
+
+dfx canister install $CANISTER_ID --wasm $WASM_PATH --mode install --argument "$ARG_STRING"
+echo "Binary option market WASM installed successfully!"
+
+# Register the market with the factory
+echo "Registering market with factory..."
+FACTORY_ID=$(dfx canister id factory)
+echo "Using factory canister ID: $FACTORY_ID"
+
+echo "Registering market with ID $CANISTER_ID in factory $FACTORY_ID"
+dfx canister call factory addExternalContract "(\"$MARKET_NAME\", principal \"$CANISTER_ID\", variant { BinaryOptionMarket })"
+
+echo "Successfully created and registered binary option market with canister ID: $CANISTER_ID"
 echo ""
-echo "You can access the new market at: http://127.0.0.1:4943/?canisterId=br5f7-7uaaa-aaaaa-qaaca-cai&id=$MARKET_ID"
+echo "You can access the market at: http://127.0.0.1:4943/?canisterId=br5f7-7uaaa-aaaaa-qaaca-cai&id=$CANISTER_ID"
 echo ""
 echo "To verify the market details, run:"
-echo "dfx canister call factory getContractDetails '(principal \"$MARKET_ID\")'" 
+echo "dfx canister call factory getContractDetails '(principal \"$CANISTER_ID\")'"
+
+# Clean up temporary directory
+rm -rf $TEMP_DIR 
