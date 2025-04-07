@@ -19,6 +19,7 @@ import { PriceService } from '../services/PriceService';
 import { format, formatDistanceToNow } from 'date-fns';
 import { isBefore } from 'date-fns'; // Import from date-fns
 import { toZonedTime } from 'date-fns-tz'; // Sử dụng toZonedTime
+import { getCurrentTimestamp, isTimestampPassed, getTimeRemaining } from '../utils/timeUtils';
 
 interface ListAddressOwnerProps {
     ownerAddress: string; // Đảm bảo ownerAddress là địa chỉ hợp lệ
@@ -125,40 +126,6 @@ const formatMaturityTime = (maturityTime: any) => {
   }
 };
 
-// Cập nhật formatCardTime cũng tương tự
-const formatCardTime = (maturityTime: any) => {
-  try {
-    if (!maturityTime) return "Unknown";
-    
-    const timestamp = Number(maturityTime);
-    if (isNaN(timestamp) || timestamp === 0) return "Unknown";
-    
-    const date = new Date(timestamp * 1000);
-    
-    // Format ngắn gọn, đẹp cho card - không chuyển múi giờ
-    return format(date, 'MMM d, yyyy h:mm a (ET)');
-  } catch (error) {
-    console.error("Error formatting card time:", error);
-    return "Unknown";
-  }
-};
-
-// Cập nhật formatMaturityDate
-const formatMaturityDate = (maturityTime: any) => {
-  try {
-    const timestamp = Number(maturityTime);
-    if (isNaN(timestamp) || timestamp === 0) return "TBD";
-    
-    // Không chuyển múi giờ
-    const date = new Date(timestamp * 1000);
-    
-    // Chỉ hiển thị ngày
-    return format(date, 'MMM d, yyyy');
-  } catch (error) {
-    console.error("Error formatting maturity date:", error);
-    return "TBD";
-  }
-};
 
 // Cập nhật isMarketEnded
 const isMarketEnded = (maturityTime: any, phase: number): boolean => {
@@ -210,7 +177,7 @@ const getMarketTitle = (contract) => {
     const maturityTimeFormatted = format(date, 'MMM d, yyyy h:mm a');
     
     // Format strike price
-    const strikePrice = ethers.utils.formatEther(contract.strikePrice);
+    const strikePrice = ethers.utils.formatUnits(contract.strikePrice, 0);
     
     // Return market title without any day of week and timestamps in parentheses
     return `${pair} will reach $${parseFloat(strikePrice).toFixed(2)} by ${maturityTimeFormatted}`;
@@ -576,6 +543,18 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       return () => clearInterval(timer);
     }, [deployedContracts]);
 
+    // Thay thế logic hiển thị thời gian còn lại
+    const renderTimeRemaining = (maturityTime: string) => {
+      const timestamp = Number(maturityTime);
+      if (isNaN(timestamp) || timestamp <= 0) return "Ends: Unknown";
+      
+      if (isTimestampPassed(timestamp)) {
+        return "Ends: Ended";
+      }
+      
+      return `Ends: ${getTimeRemaining(timestamp)}`;
+    };
+
     return (
         <Box bg="white" minH="100vh">
             {/* Header với wallet connection */}
@@ -760,61 +739,8 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                                     </Text>
                                     
                                     {/* Time remaining - Giảm margin bottom */}
-                                    <Text color="gray.300" fontSize="sm" mb={2}>
-                                        {(() => {
-                                            try {
-                                                console.log("Rendering end time for contract:", address);
-                                                console.log("Phase:", phase);
-                                                console.log("MaturityTime:", maturityTime);
-                                                
-                                                // Kiểm tra phase
-                                                const phaseNumber = parseInt(phase);
-                                                
-                                                // Nếu đã ở phase Maturity hoặc Expiry, hiển thị "Ended"
-                                                if (phaseNumber === Phase.Maturity || phaseNumber === Phase.Expiry) {
-                                                    console.log("Market ended based on phase");
-                                                    return "Ends: Ended";
-                                                }
-                                                
-                                                // Kiểm tra maturityTime có hợp lệ không
-                                                if (!maturityTime) {
-                                                    console.log("MaturityTime is invalid");
-                                                    return "Ends: Unknown";
-                                                }
-                                                
-                                                // Chuyển đổi maturityTime thành số
-                                                let timeValue = maturityTime;
-                                                if (typeof timeValue === 'string') {
-                                                    timeValue = parseInt(timeValue);
-                                                }
-                                                
-                                                if (isNaN(timeValue) || timeValue <= 0) {
-                                                    console.log("Invalid timeValue after conversion");
-                                                    return "Ends: Unknown";
-                                                }
-                                                
-                                                // Tạo đối tượng Date
-                                                const maturityDate = new Date(timeValue * 1000);
-                                                const now = new Date();
-                                                
-                                                console.log("Maturity date:", maturityDate.toISOString());
-                                                console.log("Current time:", now.toISOString());
-                                                console.log("Difference (ms):", maturityDate.getTime() - now.getTime());
-                                                
-                                                // Kiểm tra thời gian
-                                                if (now.getTime() >= maturityDate.getTime()) {
-                                                    console.log("Market ended based on time comparison");
-                                                    return "Ends: Ended";
-                                                }
-                                                
-                                                // Nếu chưa kết thúc, hiển thị thời gian còn lại
-                                                const timeRemaining = formatTimeRemaining(maturityTime);
-                                                return `Ends ${timeRemaining}`;
-                                            } catch (error) {
-                                                console.error("Error rendering end time:", error);
-                                                return "Ends: Unknown";
-                                            }
-                                        })()}
+                                    <Text fontSize="sm" color="gray.400">
+                                        {renderTimeRemaining(maturityTime)}
                                     </Text>
                                     
                                     {/* Current price - Giảm margin bottom */}

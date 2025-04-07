@@ -35,7 +35,6 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   const [selectedCoin, setSelectedCoin] = useState<Coin | null>(null);
   const [maturityDate, setMaturityDate] = useState('');
   const [maturityTime, setMaturityTime] = useState('');
-  const [currentEasternTime, setCurrentEasternTime] = useState('');
   
   // Thêm state cho gas price và estimated fee
   const [gasPrice, setGasPrice] = useState('78');
@@ -67,7 +66,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   // Thêm hàm tính Network fee (gas)
   const calculateNetworkFee = async () => {
     if (!selectedCoin || !strikePrice || !maturityDate || !maturityTime) {
-      setEstimatedGasFee("276.40"); // Giá trị mặc định
+      setEstimatedGasFee(""); // Giá trị mặc định
       return;
     }
 
@@ -160,22 +159,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   const handleGasPriceChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const newGasPrice = event.target.value;
     setGasPrice(newGasPrice);
-    // Không cần gọi calculateNetworkFee ở đây vì useEffect sẽ tự động gọi
   };
 
-  //const [FactoryAddress, setFactoryAddress] = useState<string>('');
   const FactoryAddress = FACTORY_ADDRESS;
   const toast = useToast();
-  //   useEffect(() => {
-  //     // Đọc địa chỉ từ file JSON
-  //     const data = fs.readFileSync('deployed_address.json', 'utf8');
-  //     const json = JSON.parse(data);
-  //     setFactoryAddress(json.FactoryAddress);
-  // }, []);
-
-
-
-
 
   useEffect(() => {
     const provider = new ethers.providers.Web3Provider(window.ethereum);
@@ -342,10 +329,6 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     }
   };
   
-  // Hàm xử lý khi thay đổi fee từ slider
-  const handleFeeSliderChange = (value: number) => {
-    setFeePercentage(value.toFixed(1));
-  };
 
   // Cập nhật hàm deployContract để bao gồm fee
   const deployContract = async () => {
@@ -438,36 +421,6 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   };
 
 
-
-  // Cập nhật giá strike
-  const updateStrikePrice = async () => {
-    try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
-      const binaryOptionMarketContract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, signer);
-
-      const tx = await binaryOptionMarketContract.setStrikePrice(strikePrice);
-      await tx.wait();
-
-      toast({
-        title: "Strike price updated!",
-        description: `New strike price: ${strikePrice}`,
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
-    } catch (error: any) {
-      console.error("Failed to update strike price:", error);
-      toast({
-        title: "Failed to update strike price",
-        description: error.message || "An unexpected error occurred.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
-    }
-  };
-
   const fetchContractBalance = async () => {
     try {
       console.log("Fetching contract balance..."); // Log trước khi lấy balance
@@ -506,6 +459,8 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       });
     };
   }, [walletAddress]);
+
+
   const fetchContractsByOwner = async () => {
     try {
       // Check if wallet is connected
@@ -542,37 +497,6 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     }
   };
 
-
-
-
-  const withdraw = async () => {
-    try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
-      const binaryOptionMarketContract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, signer);
-
-      const tx = await binaryOptionMarketContract.withdraw();
-      await tx.wait();
-
-      toast({
-        title: "Withdrawal successful!",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
-      await fetchBalance(); // Thêm dòng này
-    } catch (error: any) {
-      console.error("Failed to withdraw:", error);
-      toast({
-        title: "Failed to withdraw",
-        description: error.message || "An unexpected error occurred.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
-    }
-  };
-
   useEffect(() => {
     if (contractAddress) {
       fetchContractBalance();
@@ -588,76 +512,6 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     if (!address) return '';
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
 };
-
-  // Thêm component hiển thị market details
-  const MarketDetails = () => (
-    <Box
-      p={6}
-      bg="#1A1A1A"
-      borderRadius="xl"
-      border="1px solid #2D3748"
-      w="full"
-      maxW="400px"
-    >
-      <VStack spacing={4} align="stretch">
-        <Text fontSize="xl" fontWeight="bold" color="#FEDF56">Market Details</Text>
-        
-        <HStack justify="space-between">
-          <Text color="gray.400">Strike price</Text>
-          <Text color="#FEDF56">${strikePrice || '0.00'}</Text>
-        </HStack>
-
-        <HStack justify="space-between">
-          <Text color="gray.400">Current market price</Text>
-          <HStack>
-            {priceChangePercent !== 0 && (
-              <>
-                <Icon 
-                  as={priceChangePercent > 0 ? FaArrowUp : FaArrowDown} 
-                  color={priceChangePercent > 0 ? "green.400" : "red.400"} 
-                />
-                <Text 
-                  color={priceChangePercent > 0 ? "green.400" : "red.400"}
-                >
-                  {Math.abs(priceChangePercent).toFixed(2)}%
-                </Text>
-              </>
-            )}
-            <Text color="white" fontSize="xl" fontWeight="bold">
-              ${currentPrice ? currentPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'Loading...'}
-            </Text>
-          </HStack>
-        </HStack>
-
-        <HStack justify="space-between">
-          <Text color="gray.400">Maturity date</Text>
-          <Text color="#FEDF56">{maturityDate || 'Not set'}</Text>
-        </HStack>
-
-        <HStack justify="space-between">
-          <Text color="gray.400">Time to exercise</Text>
-          <Text color="#FEDF56">5 months</Text>
-        </HStack>
-
-        <Divider borderColor="#2D3748" />
-
-        <VStack spacing={2} align="stretch">
-          <HStack justify="space-between">
-            <Text color="gray.400">Minting fee</Text>
-            <Text color="#FEDF56">1.00%</Text>
-          </HStack>
-          <HStack justify="space-between">
-            <Text color="gray.400">You will earn</Text>
-            <Text color="#FEDF56">0.50%</Text>
-          </HStack>
-          <HStack justify="space-between">
-            <Text color="gray.400">Fee pool earns</Text>
-            <Text color="#FEDF56">0.50%</Text>
-          </HStack>
-        </VStack>
-      </VStack>
-    </Box>
-  );
 
   // Fetch current prices from Coinbase API
   useEffect(() => {
@@ -752,35 +606,17 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     }
   }, [selectedCoin, strikePrice]);
 
-  // Thêm useEffect để thiết lập giá trị mặc định cho maturityDate và maturityTime
-  useEffect(() => {
-    // Lấy giờ Eastern Time hiện tại
-    const now = new Date();
-    const etNow = toZonedTime(now, 'America/New_York');
-    
-    // Set default là ngày mai
-    const tomorrow = new Date(etNow);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    
-    // Thiết lập giá trị mặc định
-    setMaturityDate(format(tomorrow, 'yyyy-MM-dd'));
-    setMaturityTime(format(etNow, 'HH:mm'));
-    
-    // Cập nhật thời gian hiện tại
-    setCurrentEasternTime(format(etNow, 'HH:mm'));
-  }, []);
+  
 
-  // Cập nhật hàm createMaturityTimestamp để đảm bảo sử dụng ET
   const createMaturityTimestamp = () => {
     if (!maturityDate || !maturityTime) return 0;
     
     try {
-      // Tạo đối tượng Date từ dữ liệu nhập vào (đã là Eastern Time)
+      
       const [hours, minutes] = maturityTime.split(':').map(Number);
       const dateObj = new Date(`${maturityDate}T00:00:00`);
       dateObj.setHours(hours, minutes, 0, 0);
       
-      // Trả về timestamp (giây) - KHÔNG chuyển đổi múi giờ
       return Math.floor(dateObj.getTime() / 1000);
     } catch (error) {
       console.error('Error creating maturity timestamp:', error);
@@ -788,38 +624,8 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     }
   };
 
-  // Cập nhật formatMaturityDate để luôn hiển thị Eastern Time
-  const formatMaturityDate = (maturityTime: any) => {
-    try {
-      const timestamp = Number(maturityTime);
-      if (isNaN(timestamp) || timestamp === 0) return "TBD";
-      
-      // Tạo đối tượng Date từ timestamp (giây)
-      const date = new Date(timestamp * 1000);
-      
-      // Định dạng theo Eastern Time
-      return date.toString() === "Invalid Date" 
-        ? "TBD" 
-        : format(toZonedTime(date, 'America/New_York'), 'yyyy-MM-dd HH:mm:ss (Eastern Time)');
-    } catch (error) {
-      console.error("Error formatting maturity date:", error);
-      return "TBD";
-    }
-  };
+  
 
-  // Chuyển đổi giữa UTC và Eastern Time khi người dùng chọn thời gian
-  const convertToEasternTime = (utcTime: string) => {
-    if (!utcTime) return '';
-    // Không cần chuyển đổi vì input sẽ trực tiếp nhận giờ Eastern
-    return utcTime;
-  };
-
-  const convertToUTC = (easternTime: string) => {
-    if (!easternTime) return '';
-    // Chuyển đổi từ Eastern sang UTC khi lưu vào smart contract (nếu cần)
-    // Đây chỉ là ví dụ, cần điều chỉnh tùy thuộc vào logic ứng dụng
-    return easternTime;
-  };
 
   return (
     <Box bg="#0a1647" minH="100vh" color="white">
@@ -845,21 +651,6 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
             <Icon as={FaEthereum} color="white" />
             <Text color="white">{parseFloat(balance).toFixed(4)} ETH</Text>
           </HStack>
-          <Button
-            variant="outline"
-            borderColor="white"
-            color="white"
-            size="md"
-            onClick={withdraw}
-            isDisabled={contractBalance === '0.0000' || contractAddress === ''}
-            _hover={{ 
-              bg: 'rgba(255,255,255,0.1)',
-              transform: 'translateY(-2px)'
-            }}
-            transition="all 0.2s"
-          >
-            Withdraw
-          </Button>
         </HStack>
       )}
 
@@ -944,7 +735,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                         value={strikePrice}
                         onChange={(e) => {
                           const value = e.target.value;
-                          if (/^\d*$/.test(value)) {
+                          if (/^\d*\.?\d*$/.test(value)) {
                             setStrikePrice(value);
                           }
                         }}
@@ -992,7 +783,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                       />
                     </Box>
                     <Box flex={1}>
-                      <Text color="white" mb={4} fontWeight="bold">TIME (Eastern Time):</Text>
+                      <Text color="white" mb={4} fontWeight="bold">TIME :</Text>
                       <InputGroup>
                         <Input
                           type="time"
@@ -1010,19 +801,6 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                             borderColor: "white",
                           }}
                         />
-                        <InputRightElement h="60px" pr={2}>
-                          <Icon 
-                            as={FaClock} 
-                            color="gray.400" 
-                            cursor="pointer"
-                            onClick={() => {
-                              // Cập nhật lại giờ Eastern Time hiện tại khi click vào icon
-                              const now = new Date();
-                              const etNow = toZonedTime(now, 'America/New_York');
-                              setMaturityTime(format(etNow, 'HH:mm'));
-                            }}
-                          />
-                        </InputRightElement>
                       </InputGroup>
                     </Box>
                   </HStack>
@@ -1219,7 +997,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
                       <HStack justify="space-between">
                         <Text color="gray.400">Maturity date</Text>
-                        <Text color="white">{maturityDate || 'Not set'} {maturityTime ? `${maturityTime} (Eastern Time)` : ''}</Text>
+                        <Text color="white">{maturityDate || 'Not set'} {maturityTime ? `${maturityTime} ` : ''}</Text>
                       </HStack>
 
                       <HStack justify="space-between">
