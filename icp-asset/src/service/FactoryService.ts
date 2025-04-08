@@ -51,14 +51,16 @@ export class FactoryApiService {
     private factoryActor: any;
     private localCanisterId: string = process.env.NEXT_PUBLIC_FACTORY_CANISTER_ID || "bd3sg-teaaa-aaaaa-qaaba-cai";
 
-    constructor() {
+    constructor(identity?: any) {
         console.log("Initializing FactoryApiService for simplified API with canister ID:", this.localCanisterId);
         console.log("Using host:", process.env.NEXT_PUBLIC_IC_HOST || "http://localhost:4943");
+        console.log("Identity provided:", identity ? "Yes" : "No");
 
         try {
-            // Create a fresh agent
+            // Create a fresh agent with the provided identity if available
             this.agent = new HttpAgent({
                 host: process.env.NEXT_PUBLIC_IC_HOST || "http://localhost:4943",
+                identity: identity
             });
 
             // Only fetch the root key in development
@@ -76,6 +78,11 @@ export class FactoryApiService {
             });
 
             console.log("FactoryApiService initialized successfully with simplified interface");
+            if (identity) {
+                console.log("Using authenticated identity with principal:", identity.getPrincipal().toString());
+            } else {
+                console.warn("No identity provided - using anonymous identity");
+            }
         } catch (error) {
             console.error("Error initializing FactoryApiService:", error);
             if (error instanceof Error && error.message.includes("&")) {
@@ -84,6 +91,23 @@ export class FactoryApiService {
             }
             throw error; // Re-throw to allow proper error handling
         }
+    }
+
+    /**
+     * Update the identity after initialization
+     * @param identity The new identity to use
+     */
+    public updateIdentity(identity: any) {
+        if (!identity) {
+            console.error("Cannot update identity: No identity provided");
+            return;
+        }
+
+        console.log("Updating FactoryApiService identity to", identity.getPrincipal().toString());
+        this.agent.replaceIdentity(identity);
+
+        // Log the principal that will be used for calls
+        console.log("Factory service now using principal:", identity.getPrincipal().toString());
     }
 
     /**
@@ -855,7 +879,7 @@ export class FactoryApiService {
     /**
      * Get direct access to the factory actor for advanced usage
      */
-    getFactoryActor() {
+    public getFactoryActor() {
         return this.factoryActor;
     }
 

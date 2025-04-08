@@ -7,6 +7,7 @@ import {
 import { styled } from '@mui/material/styles';
 import { FaSync, FaArrowUp, FaArrowDown, FaClock } from 'react-icons/fa';
 import { FactoryApiService } from '../../service/FactoryService';
+import { AuthClient } from '@dfinity/auth-client';
 
 // Styled components to match EVM version
 const GradientBox = styled(Box)(({ theme }) => ({
@@ -294,8 +295,21 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
             // Make sure expiry is properly converted to bigint
             const expiryAsBigInt = BigInt(expiryTimestamp);
 
-            // Instantiate the factory service
-            const factoryService = new FactoryApiService();
+            // Get authenticated identity
+            const authClient = await AuthClient.create();
+            if (!authClient.isAuthenticated()) {
+                setErrorMsg("You must be logged in to deploy a market");
+                setDeploymentStage(0);
+                setIsLoading(false);
+                return;
+            }
+
+            const identity = authClient.getIdentity();
+            const principal = identity.getPrincipal().toString();
+            console.log("Authenticated identity principal:", principal);
+
+            // Instantiate the factory service WITH the authenticated identity
+            const factoryService = new FactoryApiService(identity);
 
             // Log the parameters we're going to use
             console.log("Deploying market with dfx-compatible interface:", {
@@ -313,6 +327,7 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                 console.log("- Strike Price:", JSON.stringify(strikePriceFloat));
                 console.log("- Expiry:", JSON.stringify(expiryAsBigInt.toString()));
                 console.log("- Owner:", userPrincipal || "default");
+                console.log("- Authenticated as:", principal);
 
                 // Test serialization first
                 const serializationResult = factoryService.debugSerialize([
