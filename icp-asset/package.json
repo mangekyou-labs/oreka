@@ -5,6 +5,9 @@
   "author": "zerefwth",
   "private": true,
   "scripts": {
+    "generate-env": "node scripts/generate-env.js",
+    "predev": "npm run generate-env",
+    "prebuild": "npm run generate-env",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

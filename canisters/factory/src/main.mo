@@ -132,7 +132,7 @@ actor Factory {
             Cycles.add(230_949_972_000);
 
             // GitHub URL for binary option market WASM
-            let wasmUrl = "https://raw.githubusercontent.com/mangekyou-labs/oreka/feat/add-factory-canister/canisters/binary_option_market/build/binary_option_market.wasm";
+            let wasmUrl = "https://raw.githubusercontent.com/mangekyou-labs/oreka/feat/add-factory-canister/canisters/binary_option_market/build/BinaryOptionMarket.wasm";
 
             let transform_context : TransformContext = {
                 function = transform;
@@ -309,10 +309,13 @@ actor Factory {
                 
                 // Convert to blob using serialization (this is just for logging)
                 let initArgsBlob = to_candid(
-                    strike_price,  // float64
-                    expiry,       // nat64
-                    underlying,   // text
-                    feePercentage // nat
+                    strike_price,     // float64
+                    expiry,           // nat64
+                    underlying,       // text
+                    feePercentage,    // nat
+                    Principal.toText(canister_id),  // canister ID as text
+                    "bkyz2-fmaaa-aaaaa-qaaaq-cai",  // ledger ID as text
+                    Principal.toText(caller)        // owner as text
                 );
                 
                 Debug.print("Installing WASM with init args");
@@ -627,5 +630,54 @@ actor Factory {
             Debug.print("Error registering external contract: " # errorMsg);
             return #err("Failed to register external contract: " # errorMsg);
         }
+    };
+
+    // Function to get all markets
+    public query func getAllMarkets() : async [Contract] {
+        Debug.print("Getting all markets...");
+        return Buffer.toArray(allContracts);
+    };
+    
+    // Function to call startTrading on a specific market canister
+    public shared(msg) func startTradingForMarket(marketId: Principal) : async Result.Result<(), Text> {
+        Debug.print("Attempting to start trading for market: " # Principal.toText(marketId));
+        
+        // First, verify the market exists
+        var foundMarket : ?Contract = null;
+        
+        // Look for the market in our registry
+        for (contract in allContracts.vals()) {
+            if (Principal.equal(contract.canisterId, marketId)) {
+                foundMarket := ?contract;
+            };
+        };
+        
+        // Check if we found the market
+        switch (foundMarket) {
+            case (null) {
+                Debug.print("Market not found: " # Principal.toText(marketId));
+                return #err("Market not found with ID: " # Principal.toText(marketId));
+            };
+            
+            case (?market) {
+                // The factory can call startTrading as it's a controller
+                Debug.print("Factory is calling startTrading for market: " # Principal.toText(marketId));
+                
+                // Create an actor reference to the market canister
+                let marketActor = actor(Principal.toText(marketId)) : actor {
+                    startTrading : () -> async ();
+                };
+                
+                try {
+                    Debug.print("Calling startTrading on market canister");
+                    await marketActor.startTrading();
+                    Debug.print("Successfully started trading for market: " # Principal.toText(marketId));
+                    return #ok(());
+                } catch (e) {
+                    Debug.print("Error starting trading: " # Error.message(e));
+                    return #err("Failed to start trading: " # Error.message(e));
+                };
+            };
+        };
     };
 } 

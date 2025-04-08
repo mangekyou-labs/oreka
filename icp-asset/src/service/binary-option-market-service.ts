@@ -21,6 +21,9 @@ export interface IBinaryOptionMarketService {
         short: Array<[Principal, bigint]>;
     }>;
     getIcpUsdExchange(): Promise<string>;
+    startTrading(): Promise<void>;
+    resolveMarket(): Promise<void>;
+    expireMarket(): Promise<void>;
 }
 
 // Base abstract class for market services
@@ -64,24 +67,34 @@ export class BinaryOptionMarketService extends BaseMarketService implements IBin
                 const { Actor, HttpAgent } = await import("@dfinity/agent");
                 const { idlFactory } = await import("../declarations/binary_option_market/binary_option_market.did.js");
 
-                // Create a new actor with the specified canister ID
-                const agent = new HttpAgent({
-                    host: process.env.NEXT_PUBLIC_IC_HOST || "http://localhost:4943",
-                });
+                // Get the properly authenticated actor
+                try {
+                    // Import the getActor function to get an authenticated actor
+                    const { getActor } = await import("./actor-locator");
+                    this.actor = await getActor(idlFactory, canisterId);
+                    console.log(`Initialized binary option market actor with custom canister ID: ${canisterId} and authenticated identity`);
+                } catch (error) {
+                    console.error("Failed to get authenticated actor, falling back to default agent:", error);
 
-                // Only fetch the root key in development
-                if (process.env.NODE_ENV !== 'production') {
-                    await agent.fetchRootKey().catch(err => {
-                        console.warn('Unable to fetch root key. Check to ensure local replica is running');
-                        console.error(err);
+                    // Fallback to creating a new agent if getting the authenticated actor fails
+                    const agent = new HttpAgent({
+                        host: process.env.NEXT_PUBLIC_IC_HOST || "http://localhost:4943",
                     });
-                }
 
-                this.actor = Actor.createActor(idlFactory, {
-                    agent,
-                    canisterId,
-                });
-                console.log(`Initialized binary option market actor with custom canister ID: ${canisterId}`);
+                    // Only fetch the root key in development
+                    if (process.env.NODE_ENV !== 'production') {
+                        await agent.fetchRootKey().catch(err => {
+                            console.warn('Unable to fetch root key. Check to ensure local replica is running');
+                            console.error(err);
+                        });
+                    }
+
+                    this.actor = Actor.createActor(idlFactory, {
+                        agent,
+                        canisterId,
+                    });
+                    console.log(`Initialized binary option market actor with custom canister ID: ${canisterId} (unauthenticated)`);
+                }
             } else {
                 // Use the default actor
                 this.actor = binaryOptionMarketActor;
@@ -151,5 +164,31 @@ export class BinaryOptionMarketService extends BaseMarketService implements IBin
     public async getIcpUsdExchange() {
         this.assertInitialized();
         return await this.actor.get_icp_usd_exchange();
+    }
+
+    // Owner functions
+
+    /**
+     * Starts the trading phase (owner only)
+     */
+    public async startTrading(): Promise<void> {
+        this.assertInitialized();
+        return await this.actor.startTrading();
+    }
+
+    /**
+     * Resolves the market using price feed data (anyone can call)
+     */
+    public async resolveMarket(): Promise<void> {
+        this.assertInitialized();
+        return await this.actor.resolveMarket();
+    }
+
+    /**
+     * Expires the market (owner only)
+     */
+    public async expireMarket(): Promise<void> {
+        this.assertInitialized();
+        return await this.actor.expireMarket();
     }
 }

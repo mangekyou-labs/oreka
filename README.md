@@ -50,7 +50,7 @@ The project consists of three main components:
 
 The Factory Canister serves as the central hub for creating and managing Binary Option Markets. It provides the following capabilities:
 
-#### Key Components
+x#### Key Components
 
 1. **Market Deployment**
    - Creates customizable prediction markets with:
@@ -127,7 +127,18 @@ record {
          trigger_threshold = 2000;
          controller_id = principal \"${MINTER}\";
      };
+     feature_flags = opt record {
+         icrc2 = true;
+     };
  }
+})"
+
+# transfer ICP to player
+dfx canister call icp_ledger_canister icrc1_transfer "(record {
+  to = record {
+    owner = principal \"${DEFAULT}\";
+  };
+  amount = 1_000_000_000;
 })"
 
 # deploy factory canister

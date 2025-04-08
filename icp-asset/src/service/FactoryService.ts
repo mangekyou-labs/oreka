@@ -937,14 +937,16 @@ export class FactoryApiService {
     async deployMarketDfx(
         name: string,          // Market name (Text)
         strikePrice: number,   // Strike price (Float64) 
-        expiry: bigint         // Expiry timestamp (Nat64)
+        expiry: bigint,        // Expiry timestamp (Nat64)
+        owner?: string         // Optional owner principal ID
     ): Promise<DeployResult> {
         try {
             console.log("Deploying market with dfx-compatible interface:", {
                 name,
                 strikePrice,
                 // Convert bigint to string to avoid serialization issues
-                expiry: expiry.toString()
+                expiry: expiry.toString(),
+                owner: owner || "default (caller)"
             });
 
             // Add debugging to see if special characters are the issue
@@ -971,7 +973,10 @@ export class FactoryApiService {
                 console.log("- strikePrice:", typeof strikePrice, strikePrice);
                 console.log("- expiry:", typeof safeExpiry, safeExpiry.toString());
 
-                // Make the call with safe parameters
+                // Make the call with parameters
+                // The factory canister only has the standard deployMarket method
+                // It uses msg.caller as the owner by default, there is no separate method
+                // to specify a custom owner
                 const result = await this.factoryActor.deployMarket(
                     sanitizedName,
                     strikePrice,
@@ -1072,6 +1077,42 @@ export class FactoryApiService {
             return {
                 ok: null,
                 err: `Failed to list markets: ${error instanceof Error ? error.message : String(error)}`
+            };
+        }
+    }
+
+    /**
+     * Start the trading phase for a market (allows the factory to call on behalf of the owner)
+     * This bypasses authentication issues by letting the factory canister make the call
+     * @param canisterId The ID of the market canister to start trading on
+     */
+    async startTrading(canisterId: string): Promise<ApiResult<boolean>> {
+        try {
+            console.log(`Calling startTrading on market canister ${canisterId} via factory`);
+
+            // Call the specific market's startTrading method through the factory
+            const result = await this.factoryActor.startTradingForMarket(
+                Principal.fromText(canisterId)
+            );
+
+            console.log("startTrading result:", result);
+
+            if ('ok' in result) {
+                return {
+                    ok: true,
+                    err: null
+                };
+            } else {
+                return {
+                    ok: false,
+                    err: 'err' in result ? result.err : "Unknown error starting trading"
+                };
+            }
+        } catch (error) {
+            console.error("Error starting trading:", error);
+            return {
+                ok: false,
+                err: `Failed to start trading: ${error instanceof Error ? error.message : String(error)}`
             };
         }
     }

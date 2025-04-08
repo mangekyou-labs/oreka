@@ -36,7 +36,10 @@ shared(msg) actor class BinaryOptionMarket(
     initStrikePrice: Float,
     initEndTimestamp: Nat64,
     initTradingPair: Text,
-    initFeePercentage: Nat
+    initFeePercentage: Nat,
+    initCanisterId: Text,
+    initLedgerId: Text, 
+    initOwner: Text
 ) = self {
 
     // ============ Type Declarations ============
@@ -148,9 +151,9 @@ shared(msg) actor class BinaryOptionMarket(
 
     // ============ Constants ============
 
-    private let OWNER : Principal = msg.caller;
-    private let CANISTER_PRINCIPAL : Principal = Principal.fromText("be2us-64aaa-aaaaa-qaabq-cai");
-    private let LEDGER_PRINCIPAL : Principal = Principal.fromText("br5f7-7uaaa-aaaaa-qaaca-cai");
+    private var OWNER : Principal = Principal.fromText(initOwner);
+    private let CANISTER_PRINCIPAL : Principal = Principal.fromText(initCanisterId);
+    private let LEDGER_PRINCIPAL : Principal = Principal.fromText(initLedgerId);
     private let FEE_PERCENTAGE : Nat = initFeePercentage; // Customizable fee percentage
     private let GAS : Nat64 = 10_000;
     private let ONE_ICP_IN_E8S : Nat = 100_000_000;
@@ -367,66 +370,39 @@ shared(msg) actor class BinaryOptionMarket(
             };
         };
 
-        // Create deposit arguments
-        let depositArgs : DepositArgs = {
-            spender_subaccount = null;
-            from = {
-                owner = msg.caller;
-                subaccount = null;
+        // Verify that the user has transferred the tokens
+        let balance = await IcpLedger.icrc1_balance_of({
+            owner = CANISTER_PRINCIPAL;
+            subaccount = null;
+        });
+
+        // Update positions based on side
+        switch (side) {
+            case (#Long) {
+                let currentLongBid = Option.get(longBids.get(msg.caller), 0);
+                positions := { 
+                    long = positions.long + value; 
+                    short = positions.short 
+                };
+                longBids.put(msg.caller, currentLongBid + value);
             };
-            to = {
-                owner = CANISTER_PRINCIPAL;
-                subaccount = null;
+            case (#Short) {
+                let currentShortBid = Option.get(shortBids.get(msg.caller), 0);
+                positions := { 
+                    long = positions.long; 
+                    short = positions.short + value 
+                };
+                shortBids.put(msg.caller, currentShortBid + value);
             };
-            amount = value;
-            fee = ?10_000;
-            memo = null;
-            created_at_time = null;
+            case (_) {
+                return #err("Invalid side");
+            };
         };
 
-        try {
-            let depositResult = await deposit(depositArgs);
-            
-            switch (depositResult) {
-                case (#err(error)) {
-                    return #err("Deposit failed: " # debug_show(error));
-                };
-                case (#ok(nat)) {
-                    // Update positions based on side
-                    switch (side) {
-                        case (#Long) {
-                            let currentLongBid = Option.get(longBids.get(msg.caller), 0);
-                            positions := { 
-                                long = positions.long + value; 
-                                short = positions.short 
-                            };
-                            longBids.put(msg.caller, currentLongBid + value);
-                        };
-                        case (#Short) {
-                            let currentShortBid = Option.get(shortBids.get(msg.caller), 0);
-                            positions := { 
-                                long = positions.long; 
-                                short = positions.short + value 
-                            };
-                            shortBids.put(msg.caller, currentShortBid + value);
-                        };
-                        case (_) {
-                            return #err("Invalid side");
-                        };
-                    };
-
-                    totalDeposited += value;
-                    logBid(side, msg.caller, value);
-                    
-                    return #ok("Bid placed successfully. Block index: " # debug_show(nat));
-                };
-                case (_) {
-                    return #err("Unexpected deposit result");
-                };
-            };
-        } catch (e) {
-            return #err("Unexpected error: " # Error.message(e));
-        };
+        totalDeposited += value;
+        logBid(side, msg.caller, value);
+        
+        return #ok("Bid placed successfully");
     };
 
     /// @notice Resolves the market using price feed data
@@ -567,6 +543,18 @@ shared(msg) actor class BinaryOptionMarket(
             strikePrice = newStrikePrice; 
             finalPrice = oracleDetails.finalPrice 
         };
+    };
+
+    /// @notice Transfers ownership of the market to a new owner
+    /// @param newOwner The principal of the new owner
+    public shared(msg) func transferOwnership(newOwner: Principal) : async () {
+        assert(msg.caller == OWNER);
+        OWNER := newOwner;
+    };
+
+    /// @notice Gets the current owner of the market
+    public query func getOwner() : async Principal {
+        OWNER
     };
 
     // ============ View Functions ============

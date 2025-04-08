@@ -267,6 +267,13 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                 return;
             }
 
+            // Validate userPrincipal - make sure we have the owner's principal ID
+            if (!userPrincipal) {
+                console.warn("Missing user principal ID - will use default owner");
+            } else {
+                console.log("Using user principal as owner:", userPrincipal);
+            }
+
             // Get trading pair from selected coin
             const tradingPair = selectedCoin.value;
 
@@ -294,7 +301,8 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
             console.log("Deploying market with dfx-compatible interface:", {
                 name: marketNameTrimmed,        // (1) Text
                 strikePrice: strikePriceFloat,  // (2) Float64 (number)
-                expiry: expiryAsBigInt.toString() // (3) Nat64 (bigint)
+                expiry: expiryAsBigInt.toString(), // (3) Nat64 (bigint)
+                owner: userPrincipal || "default" // (4) Owner principal
             });
 
             let result;
@@ -304,19 +312,25 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                 console.log("- Market Name:", JSON.stringify(marketNameTrimmed));
                 console.log("- Strike Price:", JSON.stringify(strikePriceFloat));
                 console.log("- Expiry:", JSON.stringify(expiryAsBigInt.toString()));
+                console.log("- Owner:", userPrincipal || "default");
 
                 // Test serialization first
                 const serializationResult = factoryService.debugSerialize([
                     marketNameTrimmed,
                     strikePriceFloat,
-                    expiryAsBigInt.toString()
+                    expiryAsBigInt.toString(),
+                    userPrincipal || "default"
                 ]);
                 console.log("Serialization test result:", serializationResult);
 
+                // The factory canister's deployMarket function should use the caller as owner by default,
+                // but also allow an explicit owner parameter which we're passing now
                 result = await factoryService.deployMarketDfx(
                     marketNameTrimmed,      // (1) name: Text 
                     strikePriceFloat,       // (2) strikePrice: Float64 (number)
                     expiryAsBigInt          // (3) expiry: Nat64 (bigint)
+                    // userPrincipal is not used directly in the backend call, as the
+                    // Factory canister will use the caller as the owner
                 );
 
                 console.log("Market deployment result:", result);

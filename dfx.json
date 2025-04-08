@@ -116,6 +116,13 @@
       "dependencies": [
         "binary_option_market"
       ]
+    },
+    "test_bid": {
+      "main": "test_bid.mo",
+      "type": "motoko",
+      "dependencies": [
+        "binary_option_market"
+      ]
     }
   },
   "output_env_file": ".env",
