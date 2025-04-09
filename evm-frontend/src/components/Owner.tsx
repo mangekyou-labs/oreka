@@ -35,8 +35,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   const [selectedCoin, setSelectedCoin] = useState<Coin | null>(null);
   const [maturityDate, setMaturityDate] = useState('');
   const [maturityTime, setMaturityTime] = useState('');
-  const [currentEasternTime, setCurrentEasternTime] = useState('');
-  
+
   // Thêm state cho gas price và estimated fee
   const [gasPrice, setGasPrice] = useState('78');
   const [estimatedGasFee, setEstimatedGasFee] = useState('276.40');
@@ -45,7 +44,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   const [daysToExercise, setDaysToExercise] = useState<string>('Not set');
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [priceChangePercent, setPriceChangePercent] = useState<number>(0);
-  
+
   // Cập nhật danh sách coins có sẵn với giá hiện tại
   const [availableCoins, setAvailableCoins] = useState<Coin[]>([
     { value: "BTCUSD", label: "BTC/USD", currentPrice: 47406.92 },
@@ -67,32 +66,32 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   // Thêm hàm tính Network fee (gas)
   const calculateNetworkFee = async () => {
     if (!selectedCoin || !strikePrice || !maturityDate || !maturityTime) {
-      setEstimatedGasFee("276.40"); // Giá trị mặc định
+      setEstimatedGasFee(""); // Giá trị mặc định
       return;
     }
 
     try {
       setIsCalculatingFee(true);
-      
+
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
-      
+
       // Chuyển đổi strikePrice thành BigNumber
       const strikePriceValue = ethers.utils.parseUnits(strikePrice, "0");
-      
+
       // Chuyển đổi maturity date và time thành timestamp
       const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
-      
+
       // Tạo một factory để ước tính gas khi deploy
       const factory = new ethers.ContractFactory(
         BinaryOptionMarket.abi,
         BinaryOptionMarket.bytecode,
         signer
       );
-      
+
       // Chuyển đổi fee thành số nguyên (nhân 10 để xử lý số thập phân)
       const feeValue = Math.round(parseFloat(feePercentage) * 10);
-      
+
       // Tạo dữ liệu cho việc deploy - THÊM feeValue vào đây
       const deployData = factory.getDeployTransaction(
         strikePriceValue,
@@ -101,32 +100,32 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         maturityTimestamp,
         feeValue
       ).data || '0x';
-      
+
       // Ước tính gas units cần thiết cho việc deploy
       const gasUnits = await provider.estimateGas({
         from: walletAddress,
         data: deployData
       });
-      
+
       // Ước tính gas cho việc đăng ký với Factory
       const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, signer);
       const factoryData = factoryContract.interface.encodeFunctionData('deploy', [FACTORY_ADDRESS]); // Địa chỉ tạm thời
-      
+
       const factoryGasUnits = await provider.estimateGas({
         from: walletAddress,
         to: FactoryAddress,
         data: factoryData
       });
-      
+
       // Tổng gas units cần thiết
       const totalGasUnits = gasUnits.add(factoryGasUnits);
       setEstimatedGasUnits(totalGasUnits.toString());
-      
+
       // Tính toán chi phí gas
       const gasPriceWei = ethers.utils.parseUnits(gasPrice, "gwei");
       const gasFeeWei = totalGasUnits.mul(gasPriceWei);
       const gasFeeEth = parseFloat(ethers.utils.formatEther(gasFeeWei));
-      
+
       // Chuyển đổi từ ETH sang USD (giả sử 1 ETH = 3500 USD - bạn có thể sử dụng PriceService để lấy giá chính xác)
       const priceService = PriceService.getInstance();
       let ethUsdPrice = 3500;
@@ -136,7 +135,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       } catch (error) {
         console.error('Error fetching ETH price:', error);
       }
-      
+
       const gasFeeUsd = (gasFeeEth * ethUsdPrice).toFixed(2);
       setEstimatedGasFee(gasFeeUsd);
     } catch (error) {
@@ -146,36 +145,24 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       setIsCalculatingFee(false);
     }
   };
-  
+
   // Thêm useEffect để tính lại network fee khi các thông số thay đổi
   useEffect(() => {
     const timer = setTimeout(() => {
       calculateNetworkFee();
     }, 500); // Delay 500ms để tránh tính toán quá nhiều lần
-    
+
     return () => clearTimeout(timer);
   }, [selectedCoin, strikePrice, maturityDate, maturityTime, gasPrice]);
-  
+
   // Thêm handler cho việc chọn gas price
   const handleGasPriceChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const newGasPrice = event.target.value;
     setGasPrice(newGasPrice);
-    // Không cần gọi calculateNetworkFee ở đây vì useEffect sẽ tự động gọi
   };
 
-  //const [FactoryAddress, setFactoryAddress] = useState<string>('');
   const FactoryAddress = FACTORY_ADDRESS;
   const toast = useToast();
-  //   useEffect(() => {
-  //     // Đọc địa chỉ từ file JSON
-  //     const data = fs.readFileSync('deployed_address.json', 'utf8');
-  //     const json = JSON.parse(data);
-  //     setFactoryAddress(json.FactoryAddress);
-  // }, []);
-
-
-
-
 
   useEffect(() => {
     const provider = new ethers.providers.Web3Provider(window.ethereum);
@@ -283,7 +270,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       const signer = provider.getSigner();
       const strikePriceValue = ethers.utils.parseUnits(strikePrice, "0");
       const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
-      
+
       // Chuyển đổi fee thành số nguyên (nhân 10 để xử lý số thập phân)
       const feeValue = Math.round(parseFloat(feePercentage) * 10);
 
@@ -310,7 +297,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       const gasPriceWei = ethers.utils.parseUnits(gasPrice, "gwei");
       const gasFeeEth = parseFloat(ethers.utils.formatEther(estimatedGas.mul(gasPriceWei)));
       const gasFeeUsd = (gasFeeEth * 3500).toFixed(2); // Giả sử 1 ETH = 3500 USD
-      
+
       setEstimatedGasFee(gasFeeUsd);
     } catch (error) {
       console.error("Error estimating gas:", error);
@@ -341,17 +328,13 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       }
     }
   };
-  
-  // Hàm xử lý khi thay đổi fee từ slider
-  const handleFeeSliderChange = (value: number) => {
-    setFeePercentage(value.toFixed(1));
-  };
+
 
   // Cập nhật hàm deployContract để bao gồm fee
   const deployContract = async () => {
     try {
       // Validation checks
-      if (!selectedCoin || !strikePrice || !maturityDate || !maturityTime ) {
+      if (!selectedCoin || !strikePrice || !maturityDate || !maturityTime) {
         toast({
           title: "Error",
           description: "Please fill in all required fields",
@@ -364,7 +347,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
       // Lấy timestamp theo Eastern Time
       const maturityTimestamp = createMaturityTimestamp();
-      
+
       // Kiểm tra xem maturityTimestamp có lớn hơn thời gian hiện tại không
       if (maturityTimestamp <= Math.floor(Date.now() / 1000)) {
         toast({
@@ -438,36 +421,6 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   };
 
 
-
-  // Cập nhật giá strike
-  const updateStrikePrice = async () => {
-    try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
-      const binaryOptionMarketContract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, signer);
-
-      const tx = await binaryOptionMarketContract.setStrikePrice(strikePrice);
-      await tx.wait();
-
-      toast({
-        title: "Strike price updated!",
-        description: `New strike price: ${strikePrice}`,
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
-    } catch (error: any) {
-      console.error("Failed to update strike price:", error);
-      toast({
-        title: "Failed to update strike price",
-        description: error.message || "An unexpected error occurred.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
-    }
-  };
-
   const fetchContractBalance = async () => {
     try {
       console.log("Fetching contract balance..."); // Log trước khi lấy balance
@@ -506,6 +459,8 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       });
     };
   }, [walletAddress]);
+
+
   const fetchContractsByOwner = async () => {
     try {
       // Check if wallet is connected
@@ -542,37 +497,6 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     }
   };
 
-
-
-
-  const withdraw = async () => {
-    try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
-      const binaryOptionMarketContract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, signer);
-
-      const tx = await binaryOptionMarketContract.withdraw();
-      await tx.wait();
-
-      toast({
-        title: "Withdrawal successful!",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
-      await fetchBalance(); // Thêm dòng này
-    } catch (error: any) {
-      console.error("Failed to withdraw:", error);
-      toast({
-        title: "Failed to withdraw",
-        description: error.message || "An unexpected error occurred.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
-    }
-  };
-
   useEffect(() => {
     if (contractAddress) {
       fetchContractBalance();
@@ -587,7 +511,125 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   const shortenAddress = (address: string) => {
     if (!address) return '';
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
-};
+  };
+
+  // Fetch current prices from Coinbase API
+  useEffect(() => {
+    const fetchPrices = async () => {
+      try {
+        const response = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=USD');
+        const data = await response.json();
+        const rates = data.data.rates;
+
+        // Update available coins with current prices
+        setAvailableCoins([
+          { value: "BTCUSD", label: "BTC/USD", currentPrice: 1 / parseFloat(rates.BTC) },
+          { value: "ETHUSD", label: "ETH/USD", currentPrice: 1 / parseFloat(rates.ETH) },
+          { value: "ICPUSD", label: "ICP/USD", currentPrice: 1 / parseFloat(rates.ICP) || 12.87 }
+        ]);
+      } catch (error) {
+        console.error("Error fetching prices from Coinbase:", error);
+      }
+    };
+
+    fetchPrices();
+    // Refresh prices every 60 seconds
+    const interval = setInterval(fetchPrices, 60000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Calculate days to exercise when maturity date changes
+  useEffect(() => {
+    if (maturityDate && maturityTime) {
+      const now = new Date();
+      const maturityDateTime = new Date(`${maturityDate} ${maturityTime}`);
+
+      // Tính số ngày còn lại
+      const diffTime = maturityDateTime.getTime() - now.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays <= 0) {
+        setDaysToExercise('Expired');
+      } else if (diffDays === 1) {
+        setDaysToExercise('1 day');
+      } else if (diffDays < 30) {
+        setDaysToExercise(`${diffDays} days`);
+      } else if (diffDays < 365) {
+        const months = Math.floor(diffDays / 30);
+        setDaysToExercise(`${months} ${months === 1 ? 'month' : 'months'}`);
+      } else {
+        const years = Math.floor(diffDays / 365);
+        const remainingMonths = Math.floor((diffDays % 365) / 30);
+        if (remainingMonths === 0) {
+          setDaysToExercise(`${years} ${years === 1 ? 'year' : 'years'}`);
+        } else {
+          setDaysToExercise(`${years} ${years === 1 ? 'year' : 'years'}, ${remainingMonths} ${remainingMonths === 1 ? 'month' : 'months'}`);
+        }
+      }
+    }
+  }, [maturityDate, maturityTime]);
+
+  // Lấy giá hiện tại từ Coinbase thông qua PriceService
+  useEffect(() => {
+    if (selectedCoin) {
+      const priceService = PriceService.getInstance();
+      const fetchCurrentPrice = async () => {
+        try {
+          // Chuyển đổi từ BTCUSD sang BTC-USD nếu cần
+          const formattedSymbol = selectedCoin.value.includes('-')
+            ? selectedCoin.value
+            : `${selectedCoin.value.substring(0, 3)}-${selectedCoin.value.substring(3)}`;
+
+          const priceData = await priceService.fetchPrice(formattedSymbol);
+          setCurrentPrice(priceData.price);
+
+          // Tính toán phần trăm thay đổi nếu có strikePrice
+          if (strikePrice && strikePrice !== '') {
+            const strikePriceNum = parseFloat(strikePrice);
+            if (!isNaN(strikePriceNum) && strikePriceNum > 0) {
+              const changePercent = ((priceData.price - strikePriceNum) / strikePriceNum) * 100;
+              setPriceChangePercent(changePercent);
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching current price:', error);
+        }
+      };
+
+      fetchCurrentPrice();
+
+      // Cập nhật giá mỗi 30 giây
+      const intervalId = setInterval(fetchCurrentPrice, 30000);
+
+      return () => clearInterval(intervalId);
+    }
+  }, [selectedCoin, strikePrice]);
+
+
+
+  const createMaturityTimestamp = () => {
+    if (!maturityDate || !maturityTime) return 0;
+
+    try {
+
+      const [hours, minutes] = maturityTime.split(':').map(Number);
+      const dateObj = new Date(`${maturityDate}T00:00:00`);
+      dateObj.setHours(hours, minutes, 0, 0);
+
+      return Math.floor(dateObj.getTime() / 1000);
+    } catch (error) {
+      console.error('Error creating maturity timestamp:', error);
+      return 0;
+    }
+  };
+
+
+
+  const shortenAddress = (address: string) => {
+    if (!address) return '';
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  };
 
   // Thêm component hiển thị market details
   const MarketDetails = () => (
@@ -601,7 +643,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     >
       <VStack spacing={4} align="stretch">
         <Text fontSize="xl" fontWeight="bold" color="#FEDF56">Market Details</Text>
-        
+
         <HStack justify="space-between">
           <Text color="gray.400">Strike price</Text>
           <Text color="#FEDF56">${strikePrice || '0.00'}</Text>
@@ -612,11 +654,11 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
           <HStack>
             {priceChangePercent !== 0 && (
               <>
-                <Icon 
-                  as={priceChangePercent > 0 ? FaArrowUp : FaArrowDown} 
-                  color={priceChangePercent > 0 ? "green.400" : "red.400"} 
+                <Icon
+                  as={priceChangePercent > 0 ? FaArrowUp : FaArrowDown}
+                  color={priceChangePercent > 0 ? "green.400" : "red.400"}
                 />
-                <Text 
+                <Text
                   color={priceChangePercent > 0 ? "green.400" : "red.400"}
                 >
                   {Math.abs(priceChangePercent).toFixed(2)}%
@@ -624,7 +666,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
               </>
             )}
             <Text color="white" fontSize="xl" fontWeight="bold">
-              ${currentPrice ? currentPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'Loading...'}
+              ${currentPrice ? currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Loading...'}
             </Text>
           </HStack>
         </HStack>
@@ -666,7 +708,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         const response = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=USD');
         const data = await response.json();
         const rates = data.data.rates;
-        
+
         // Update available coins with current prices
         setAvailableCoins([
           { value: "BTCUSD", label: "BTC/USD", currentPrice: 1 / parseFloat(rates.BTC) },
@@ -677,24 +719,24 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         console.error("Error fetching prices from Coinbase:", error);
       }
     };
-    
+
     fetchPrices();
     // Refresh prices every 60 seconds
     const interval = setInterval(fetchPrices, 60000);
-    
+
     return () => clearInterval(interval);
   }, []);
-  
+
   // Calculate days to exercise when maturity date changes
   useEffect(() => {
     if (maturityDate && maturityTime) {
       const now = new Date();
       const maturityDateTime = new Date(`${maturityDate} ${maturityTime}`);
-      
+
       // Tính số ngày còn lại
       const diffTime = maturityDateTime.getTime() - now.getTime();
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
+
       if (diffDays <= 0) {
         setDaysToExercise('Expired');
       } else if (diffDays === 1) {
@@ -723,13 +765,13 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       const fetchCurrentPrice = async () => {
         try {
           // Chuyển đổi từ BTCUSD sang BTC-USD nếu cần
-          const formattedSymbol = selectedCoin.value.includes('-') 
-            ? selectedCoin.value 
+          const formattedSymbol = selectedCoin.value.includes('-')
+            ? selectedCoin.value
             : `${selectedCoin.value.substring(0, 3)}-${selectedCoin.value.substring(3)}`;
-          
+
           const priceData = await priceService.fetchPrice(formattedSymbol);
           setCurrentPrice(priceData.price);
-          
+
           // Tính toán phần trăm thay đổi nếu có strikePrice
           if (strikePrice && strikePrice !== '') {
             const strikePriceNum = parseFloat(strikePrice);
@@ -742,12 +784,12 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
           console.error('Error fetching current price:', error);
         }
       };
-      
+
       fetchCurrentPrice();
-      
+
       // Cập nhật giá mỗi 30 giây
       const intervalId = setInterval(fetchCurrentPrice, 30000);
-      
+
       return () => clearInterval(intervalId);
     }
   }, [selectedCoin, strikePrice]);
@@ -757,15 +799,15 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     // Lấy giờ Eastern Time hiện tại
     const now = new Date();
     const etNow = toZonedTime(now, 'America/New_York');
-    
+
     // Set default là ngày mai
     const tomorrow = new Date(etNow);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
+
     // Thiết lập giá trị mặc định
     setMaturityDate(format(tomorrow, 'yyyy-MM-dd'));
     setMaturityTime(format(etNow, 'HH:mm'));
-    
+
     // Cập nhật thời gian hiện tại
     setCurrentEasternTime(format(etNow, 'HH:mm'));
   }, []);
@@ -773,13 +815,13 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   // Cập nhật hàm createMaturityTimestamp để đảm bảo sử dụng ET
   const createMaturityTimestamp = () => {
     if (!maturityDate || !maturityTime) return 0;
-    
+
     try {
       // Tạo đối tượng Date từ dữ liệu nhập vào (đã là Eastern Time)
       const [hours, minutes] = maturityTime.split(':').map(Number);
       const dateObj = new Date(`${maturityDate}T00:00:00`);
       dateObj.setHours(hours, minutes, 0, 0);
-      
+
       // Trả về timestamp (giây) - KHÔNG chuyển đổi múi giờ
       return Math.floor(dateObj.getTime() / 1000);
     } catch (error) {
@@ -793,13 +835,13 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     try {
       const timestamp = Number(maturityTime);
       if (isNaN(timestamp) || timestamp === 0) return "TBD";
-      
+
       // Tạo đối tượng Date từ timestamp (giây)
       const date = new Date(timestamp * 1000);
-      
+
       // Định dạng theo Eastern Time
-      return date.toString() === "Invalid Date" 
-        ? "TBD" 
+      return date.toString() === "Invalid Date"
+        ? "TBD"
         : format(toZonedTime(date, 'America/New_York'), 'yyyy-MM-dd HH:mm:ss (Eastern Time)');
     } catch (error) {
       console.error("Error formatting maturity date:", error);
@@ -825,11 +867,11 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     <Box bg="#0a1647" minH="100vh" color="white">
       {/* Header - Wallet Info */}
       {isConnected && (
-        <HStack 
-          spacing={6} 
-          p={4} 
-          bg="rgba(10,22,71,0.8)" 
-          borderRadius="lg" 
+        <HStack
+          spacing={6}
+          p={4}
+          bg="rgba(10,22,71,0.8)"
+          borderRadius="lg"
           border="1px solid rgba(255,255,255,0.1)"
           w="full"
           justify="space-between"
@@ -845,21 +887,6 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
             <Icon as={FaEthereum} color="white" />
             <Text color="white">{parseFloat(balance).toFixed(4)} ETH</Text>
           </HStack>
-          <Button
-            variant="outline"
-            borderColor="white"
-            color="white"
-            size="md"
-            onClick={withdraw}
-            isDisabled={contractBalance === '0.0000' || contractAddress === ''}
-            _hover={{ 
-              bg: 'rgba(255,255,255,0.1)',
-              transform: 'translateY(-2px)'
-            }}
-            transition="all 0.2s"
-          >
-            Withdraw
-          </Button>
         </HStack>
       )}
 
@@ -874,7 +901,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
             fontWeight="bold"
             w="500px"
             p={6}
-            _hover={{ 
+            _hover={{
               bg: 'rgba(255,255,255,0.1)',
               transform: 'translateY(-2px)'
             }}
@@ -895,9 +922,9 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                   <Box p={4} bg="rgba(255,255,255,0.05)" borderRadius="xl">
                     <Text fontSize="sm" color="white">
                       Note: When creating a market, you're establishing a binary options contract
-                       where users can bid on whether the price will be above (LONG) or below (SHORT)
-                        the strike price at maturity. The fee you set (between 0.1% and 20%) will be 
-                        applied to winning positions and distributed to you as the market creator.
+                      where users can bid on whether the price will be above (LONG) or below (SHORT)
+                      the strike price at maturity. The fee you set (between 0.1% and 20%) will be
+                      applied to winning positions and distributed to you as the market creator.
                     </Text>
                   </Box>
 
@@ -922,8 +949,8 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                       icon={<Icon as={FaEthereum} color="white" />}
                     >
                       {availableCoins.map((coin) => (
-                        <option 
-                          key={coin.value} 
+                        <option
+                          key={coin.value}
                           value={coin.value}
                           style={{
                             backgroundColor: "#0a1647",
@@ -944,7 +971,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                         value={strikePrice}
                         onChange={(e) => {
                           const value = e.target.value;
-                          if (/^\d*$/.test(value)) {
+                          if (/^\d*\.?\d*$/.test(value)) {
                             setStrikePrice(value);
                           }
                         }}
@@ -961,10 +988,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                           boxShadow: "0 0 0 1px white",
                         }}
                       />
-                      <InputRightAddon 
+                      <InputRightAddon
                         h="60px"
-                        children="$" 
-                        bg="transparent" 
+                        children="$"
+                        bg="transparent"
                         borderColor="rgba(255,255,255,0.2)"
                         color="white"
                       />
@@ -992,7 +1019,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                       />
                     </Box>
                     <Box flex={1}>
-                      <Text color="white" mb={4} fontWeight="bold">TIME (Eastern Time):</Text>
+                      <Text color="white" mb={4} fontWeight="bold">TIME :</Text>
                       <InputGroup>
                         <Input
                           type="time"
@@ -1010,19 +1037,6 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                             borderColor: "white",
                           }}
                         />
-                        <InputRightElement h="60px" pr={2}>
-                          <Icon 
-                            as={FaClock} 
-                            color="gray.400" 
-                            cursor="pointer"
-                            onClick={() => {
-                              // Cập nhật lại giờ Eastern Time hiện tại khi click vào icon
-                              const now = new Date();
-                              const etNow = toZonedTime(now, 'America/New_York');
-                              setMaturityTime(format(etNow, 'HH:mm'));
-                            }}
-                          />
-                        </InputRightElement>
                       </InputGroup>
                     </Box>
                   </HStack>
@@ -1031,7 +1045,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                   <Box>
                     <HStack spacing={4} align="center">
                       <Text color="white" fontWeight="bold" minW="50px">FEE:</Text>
-                      
+
                       <Box flex={1} maxW="300px" position="relative">
                         <Slider
                           id="fee-slider"
@@ -1062,7 +1076,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                           </Tooltip>
                         </Slider>
                       </Box>
-                      
+
                       <Box flex={1}>
                         <InputGroup>
                           <Input
@@ -1082,17 +1096,17 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                               boxShadow: "0 0 0 1px white",
                             }}
                           />
-                          <InputRightAddon 
+                          <InputRightAddon
                             h="60px"
-                            children="%" 
-                            bg="transparent" 
+                            children="%"
+                            bg="transparent"
                             borderColor="rgba(255,255,255,0.2)"
                             color="white"
                           />
                         </InputGroup>
                       </Box>
                     </HStack>
-                    
+
                     <Text color="gray.400" fontSize="sm" mt={1}>
                       This fee will be applied to winning positions and distributed to the market creator.
                     </Text>
@@ -1112,9 +1126,9 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                     <HStack mt={2} justify="space-between">
                       <Text color="gray.400">Gas price (gwei)</Text>
                       <HStack>
-                        <Select 
-                          w="120px" 
-                          size="sm" 
+                        <Select
+                          w="120px"
+                          size="sm"
                           bg="rgba(255,255,255,0.1)"
                           border="1px solid rgba(255,255,255,0.2)"
                           color="white"
@@ -1135,10 +1149,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                             }
                           }}
                         >
-                          <option value="60" style={{backgroundColor: "#0a1647", color: "white"}}>60.00 (Slow)</option>
-                          <option value="78" style={{backgroundColor: "#0a1647", color: "white"}}>78.00 (Normal)</option>
-                          <option value="90" style={{backgroundColor: "#0a1647", color: "white"}}>90.00 (Fast)</option>
-                          <option value="120" style={{backgroundColor: "#0a1647", color: "white"}}>120.00 (Rapid)</option>
+                          <option value="60" style={{ backgroundColor: "#0a1647", color: "white" }}>60.00 (Slow)</option>
+                          <option value="78" style={{ backgroundColor: "#0a1647", color: "white" }}>78.00 (Normal)</option>
+                          <option value="90" style={{ backgroundColor: "#0a1647", color: "white" }}>90.00 (Fast)</option>
+                          <option value="120" style={{ backgroundColor: "#0a1647", color: "white" }}>120.00 (Rapid)</option>
                         </Select>
                       </HStack>
                     </HStack>
@@ -1150,12 +1164,12 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
               </Box>
 
               {/* Vertical Divider */}
-              <Box 
-                position="absolute" 
-                left="50%" 
-                top={0} 
-                bottom={0} 
-                width="1px" 
+              <Box
+                position="absolute"
+                left="50%"
+                top={0}
+                bottom={0}
+                width="1px"
                 bg="rgba(255,255,255,0.2)"
                 transform="translateX(-50%)"
               />
@@ -1164,10 +1178,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
               <Box flex={1} pl={8}>
                 <VStack spacing={6} align="center">
                   {/* OREKA Logo instead of BTC icon */}
-                  <Text 
-                    fontSize="5xl" 
-                    fontWeight="bold" 
-                    bgGradient="linear(to-r, #4a63c8, #5a73d8, #6a83e8)" 
+                  <Text
+                    fontSize="5xl"
+                    fontWeight="bold"
+                    bgGradient="linear(to-r, #4a63c8, #5a73d8, #6a83e8)"
                     bgClip="text"
                     letterSpacing="wider"
                     textShadow="0 0 10px rgba(74, 99, 200, 0.7), 0 0 20px rgba(74, 99, 200, 0.5)"
@@ -1198,11 +1212,11 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                         <HStack>
                           {priceChangePercent !== 0 && (
                             <>
-                              <Icon 
-                                as={priceChangePercent > 0 ? FaArrowUp : FaArrowDown} 
-                                color={priceChangePercent > 0 ? "green.400" : "red.400"} 
+                              <Icon
+                                as={priceChangePercent > 0 ? FaArrowUp : FaArrowDown}
+                                color={priceChangePercent > 0 ? "green.400" : "red.400"}
                               />
-                              <Text 
+                              <Text
                                 color={priceChangePercent > 0 ? "green.400" : "red.400"}
                               >
                                 {Math.abs(priceChangePercent).toFixed(2)}%
@@ -1210,7 +1224,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                             </>
                           )}
                           <Text color="white" fontSize="xl" fontWeight="bold">
-                            ${currentPrice ? currentPrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : 'Loading...'}
+                            ${currentPrice ? currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Loading...'}
                           </Text>
                         </HStack>
                       </HStack>
@@ -1219,7 +1233,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
                       <HStack justify="space-between">
                         <Text color="gray.400">Maturity date</Text>
-                        <Text color="white">{maturityDate || 'Not set'} {maturityTime ? `${maturityTime} (Eastern Time)` : ''}</Text>
+                        <Text color="white">{maturityDate || 'Not set'} {maturityTime ? `${maturityTime} ` : ''}</Text>
                       </HStack>
 
                       <HStack justify="space-between">
@@ -1291,7 +1305,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                 h="60px"
                 borderRadius="full"
                 fontSize="xl"
-                _hover={{ 
+                _hover={{
                   bg: '#5a73d8',
                   transform: 'translateY(-2px)'
                 }}

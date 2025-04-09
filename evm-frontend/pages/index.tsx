@@ -5,6 +5,7 @@ import Owner from "../src/components/Owner";
 import { useAuth } from "../src/context/AuthContext";
 import { useEffect } from "react";
 import { useRouter } from "next/router";
+import ListAddressOwner from "../src/components/ListAddressOwner";
 
 const Home: NextPage = () => {
   const { isConnected, walletAddress, connectWallet } = useAuth();
@@ -30,7 +31,7 @@ const Home: NextPage = () => {
 
   return (
     <>
-      <Owner address={walletAddress} />
+      <ListAddressOwner ownerAddress={walletAddress} page={1} />
     </>
   );
 };
