@@ -9,6 +9,13 @@ export class PriceService {
   private static instance: PriceService;
   private priceSubscribers: ((data: PriceData) => void)[] = [];
   private currentInterval: NodeJS.Timeout | null = null;
+  
+  // WebSocket support
+  private webSocket: WebSocket | null = null;
+  private webSocketSubscriptions: Map<string, Set<(data: PriceData) => void>> = new Map();
+  private reconnectAttempts: number = 0;
+  private maxReconnectAttempts: number = 5;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
 
   private constructor() {}
 
@@ -70,6 +77,202 @@ export class PriceService {
         throw error;
       }
     }
+  }
+
+  // Add WebSocket functionality
+  public subscribeToWebSocketPrices(callback: (data: PriceData) => void, symbols: string[] = ['BTC-USD']): () => void {
+    // Make sure all symbols are in correct format for Coinbase
+    const formattedSymbols = symbols.map(symbol => this.formatSymbolForCoinbase(symbol));
+    
+    // Store subscription for each symbol
+    formattedSymbols.forEach(symbol => {
+      if (!this.webSocketSubscriptions.has(symbol)) {
+        this.webSocketSubscriptions.set(symbol, new Set());
+      }
+      this.webSocketSubscriptions.get(symbol)?.add(callback);
+    });
+    
+    // Initialize WebSocket if not already done
+    this.initializeWebSocket(formattedSymbols);
+    
+    // Fetch initial prices immediately
+    formattedSymbols.forEach(async (symbol) => {
+      try {
+        const priceData = await this.fetchPrice(symbol);
+        callback(priceData);
+      } catch (error) {
+        console.error(`Error fetching initial price for ${symbol}:`, error);
+      }
+    });
+    
+    // Return unsubscribe function
+    return () => {
+      formattedSymbols.forEach(symbol => {
+        const subscribers = this.webSocketSubscriptions.get(symbol);
+        if (subscribers) {
+          subscribers.delete(callback);
+          if (subscribers.size === 0) {
+            this.webSocketSubscriptions.delete(symbol);
+          }
+        }
+      });
+      
+      // Close WebSocket if no more subscriptions
+      if (this.webSocketSubscriptions.size === 0) {
+        this.closeWebSocket();
+      } else {
+        // Update subscriptions
+        this.updateWebSocketSubscriptions();
+      }
+    };
+  }
+  
+  private initializeWebSocket(symbols: string[] = []): void {
+    // Return early if WebSocket is already initialized
+    if (this.webSocket && this.webSocket.readyState === WebSocket.OPEN) {
+      this.updateWebSocketSubscriptions();
+      return;
+    }
+    
+    // Close existing WebSocket if it exists
+    this.closeWebSocket();
+    
+    // Create new WebSocket connection
+    this.webSocket = new WebSocket('wss://ws-feed.exchange.coinbase.com');
+    
+    this.webSocket.onopen = () => {
+      console.log('Coinbase WebSocket connection established');
+      this.reconnectAttempts = 0;
+      this.updateWebSocketSubscriptions();
+    };
+    
+    this.webSocket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        // Handle price updates from ticker messages
+        if (data.type === 'ticker' && data.product_id && data.price) {
+          const symbol = data.product_id;
+          const subscribers = this.webSocketSubscriptions.get(symbol);
+          
+          if (subscribers) {
+            const priceData: PriceData = {
+              price: parseFloat(data.price),
+              symbol: symbol,
+              timestamp: Date.now()
+            };
+            
+            // Notify all subscribers
+            subscribers.forEach(callback => {
+              try {
+                callback(priceData);
+              } catch (error) {
+                console.error('Error in subscriber callback:', error);
+              }
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error processing WebSocket message:', error);
+      }
+    };
+    
+    this.webSocket.onerror = (error) => {
+      console.error('Coinbase WebSocket error:', error);
+      this.attemptReconnect();
+    };
+    
+    this.webSocket.onclose = (event) => {
+      console.log(`Coinbase WebSocket connection closed: ${event.code} ${event.reason}`);
+      this.attemptReconnect();
+    };
+  }
+  
+  private updateWebSocketSubscriptions(): void {
+    if (!this.webSocket || this.webSocket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    
+    // Get all unique symbols from subscriptions
+    const symbols = Array.from(this.webSocketSubscriptions.keys());
+    
+    if (symbols.length === 0) {
+      this.closeWebSocket();
+      return;
+    }
+    
+    // Subscribe to ticker channels for each symbol
+    const subscribeMsg = {
+      type: 'subscribe',
+      product_ids: symbols,
+      channels: ['ticker']
+    };
+    
+    // Send subscription message
+    this.webSocket.send(JSON.stringify(subscribeMsg));
+    console.log('Subscribed to Coinbase WebSocket for:', symbols);
+  }
+  
+  private closeWebSocket(): void {
+    if (this.webSocket) {
+      try {
+        // Only attempt to unsubscribe and close if the connection is open
+        if (this.webSocket.readyState === WebSocket.OPEN) {
+          const symbols = Array.from(this.webSocketSubscriptions.keys());
+          if (symbols.length > 0) {
+            const unsubscribeMsg = {
+              type: 'unsubscribe',
+              product_ids: symbols,
+              channels: ['ticker']
+            };
+            this.webSocket.send(JSON.stringify(unsubscribeMsg));
+          }
+          this.webSocket.close();
+        }
+      } catch (error) {
+        console.error('Error closing WebSocket:', error);
+      } finally {
+        this.webSocket = null;
+      }
+    }
+    
+    // Clear any pending reconnect
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+  }
+  
+  private attemptReconnect(): void {
+    // Clear any existing reconnect timeout
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    
+    // Only attempt to reconnect if we have subscriptions
+    if (this.webSocketSubscriptions.size === 0) {
+      return;
+    }
+    
+    // Check if we've exceeded max reconnect attempts
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error(`Max WebSocket reconnect attempts (${this.maxReconnectAttempts}) reached`);
+      return;
+    }
+    
+    // Exponential backoff for reconnect
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+    this.reconnectAttempts++;
+    
+    console.log(`Attempting to reconnect WebSocket in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    
+    this.reconnectTimeout = setTimeout(() => {
+      // Get all symbols from current subscriptions
+      const symbols = Array.from(this.webSocketSubscriptions.keys());
+      // Attempt to initialize the WebSocket again
+      this.initializeWebSocket(symbols);
+    }, delay);
   }
 
   public subscribeToPriceUpdates(callback: (data: PriceData) => void, symbol: string = 'BTC-USD', interval: number = 5000) {
