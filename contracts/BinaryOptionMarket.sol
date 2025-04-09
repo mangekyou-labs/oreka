@@ -1,26 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-
-import "@openzeppelin/contracts/access/Ownable.sol";
-import {ApolloReceiver} from "@orally-network/solidity-sdk/ApolloReceiver.sol";
+import "node_modules/@openzeppelin/contracts/access/Ownable.sol";
 import "./OracleConsumer.sol";
 
-contract BinaryOptionMarket is Ownable, ApolloReceiver {
-    enum Side {
-        Long,
-        Short
-    }
-    enum Phase {
-        Bidding,
-        Trading,
-        Maturity,
-        Expiry
-    }
+contract BinaryOptionMarket is Ownable {
+    enum Side { Long, Short }
+    enum Phase { Trading, Bidding, Maturity, Expiry }
 
     struct OracleDetails {
         uint strikePrice;
-        uint256 finalPrice;
+        string finalPrice;
     }
 
     struct Position {
@@ -34,6 +24,8 @@ contract BinaryOptionMarket is Ownable, ApolloReceiver {
         uint refundFee;
     }
 
+    uint256 public strikePrice;
+    uint256 public deployTime;
     OracleDetails public oracleDetails;
     OracleConsumer internal priceFeed;
     Position public positions;
@@ -41,39 +33,53 @@ contract BinaryOptionMarket is Ownable, ApolloReceiver {
     uint public totalDeposited;
     bool public resolved;
     Phase public currentPhase;
-    uint public feePercentage = 10; // 10% fee on rewards
+    uint public feePercentage;
     mapping(address => uint) public longBids;
     mapping(address => uint) public shortBids;
     mapping(address => bool) public hasClaimed;
 
+    // Thêm biến thời gian
+    uint public maturityTime; // Thời gian resolve market
+    uint public resolveTime;
+    string public tradingPair;
+    uint public biddingStartTime; // Thêm biến state
+
     event Bid(Side side, address indexed account, uint value);
-    event MarketResolved(uint256 finalPrice, uint timeStamp);
+    event MarketResolved(string finalPrice, uint timeStamp);
     event RewardClaimed(address indexed account, uint value);
     event Withdrawal(address indexed user, uint amount);
+    event PositionUpdated(
+        uint timestamp,
+        uint longAmount,
+        uint shortAmount,
+        uint totalDeposited
+    );
+    event MarketOutcome(Side winningSide, address indexed user, bool isWinner);
 
-    // The problem may lie in the oracle. It should be deployed on Sepolia
-    // FUCK!
     constructor(
+        uint256 _strikePrice, 
         address _owner,
-
-        address _executorsRegistry,
-        address _apolloCoordinator,
-        uint _strikePrice
-    ) Ownable(_owner) ApolloReceiver(_executorsRegistry, _apolloCoordinator) {
-        //priceFeed = OracleConsumer(_coprocessor);
-        oracleDetails = OracleDetails(_strikePrice, _strikePrice);
-
-        currentPhase = Phase.Bidding;
-        transferOwnership(msg.sender); // Initialize the Ownable contract with the contract creator
+        string memory _tradingPair,
+        uint _maturityTime,
+        uint _feePercentage
+    ) Ownable(_owner) {
+        require(_maturityTime > block.timestamp, "Maturity time must be in the future");
+        require(_feePercentage >= 1 && _feePercentage <= 200, "Fee must be between 0.1% and 20%");
+        
+        strikePrice = _strikePrice;
+        tradingPair = _tradingPair;
+        maturityTime = _maturityTime;
+        deployTime = block.timestamp;
+        feePercentage = _feePercentage;
+        currentPhase = Phase.Trading;
     }
 
-     function setStrikePrice(uint _strikePrice) external onlyOwner {
+    function setStrikePrice(uint _strikePrice) external onlyOwner {
         oracleDetails.strikePrice = _strikePrice;
     }
 
-
     function bid(Side side) public payable {
-        require(currentPhase == Phase.Trading, "Not in Trading phase");
+        require(currentPhase == Phase.Bidding, "Not in Bidding phase");
         require(msg.value > 0, "Value must be greater than zero");
 
         if (side == Side.Long) {
@@ -85,43 +91,32 @@ contract BinaryOptionMarket is Ownable, ApolloReceiver {
         }
 
         totalDeposited += msg.value;
+
+        emit PositionUpdated(
+            block.timestamp,
+            positions.long,
+            positions.short,
+            totalDeposited
+        );
+        
         emit Bid(side, msg.sender, msg.value);
     }
 
-    event MarketOutcome(Side winningSide, address indexed user, bool isWinner);
-    function resolveMarket() external onlyOwner {
-        require(currentPhase == Phase.Trading, "Market not in trading phase");
-
-        // Get the price from the smart contract itself
-        requestPriceFeed();
-    }
-
-    function resolveWithFulfilledData(
-        uint256 _rate,
-        uint256 _decimals,
-        uint256 _timestamp
-    ) internal {
-        // Parse price from string to uint
-        // uint finalPrice = parsePrice(oracleDetails.finalPrice);
-
-        uint256 finalPrice = _rate / _decimals;
-        uint updatedAt = _timestamp;
-        oracleDetails.finalPrice = finalPrice;
-
-        resolved = true;
+    function resolveMarket() external {
+        require(currentPhase == Phase.Bidding, "Market not in Bidding phase");
+        require(block.timestamp >= maturityTime, "Too early to resolve");
+        
         currentPhase = Phase.Maturity;
+        resolveTime = block.timestamp;
 
+        string memory price = "10"; // Giá từ Oracle
+        oracleDetails.finalPrice = price;
+        resolved = true;
 
-        emit MarketResolved(finalPrice, updatedAt);
-
-        Side winningSide;
-        if (finalPrice >= oracleDetails.strikePrice) {
-            winningSide = Side.Long;
-        } else {
-            winningSide = Side.Short;
-        }
-
-
+        uint finalPrice = parsePrice(oracleDetails.finalPrice);
+        Side winningSide = finalPrice < oracleDetails.strikePrice ? Side.Short : Side.Long;
+        
+        emit MarketResolved(price, block.timestamp);
         emit MarketOutcome(winningSide, address(0), true);
     }
 
@@ -130,42 +125,26 @@ contract BinaryOptionMarket is Ownable, ApolloReceiver {
         require(resolved, "Market is not resolved yet");
         require(!hasClaimed[msg.sender], "Reward already claimed");
 
-        uint finalPrice = oracleDetails.finalPrice;
-
-        Side winningSide;
-        if (finalPrice >= oracleDetails.strikePrice) {
-            winningSide = Side.Long;
-        } else {
-            winningSide = Side.Short;
-        }
+        uint finalPrice = parsePrice(oracleDetails.finalPrice);
+        uint strikePrice = oracleDetails.strikePrice;
+        
+        Side winningSide = finalPrice < strikePrice ? Side.Short : Side.Long;
 
         uint userDeposit;
         uint totalWinningDeposits;
-        bool isWinner = false;
 
         if (winningSide == Side.Long) {
             userDeposit = longBids[msg.sender];
             totalWinningDeposits = positions.long;
-            if (userDeposit > 0) {
-
-                isWinner = true; // Người dùng thắng
-            }
         } else {
             userDeposit = shortBids[msg.sender];
             totalWinningDeposits = positions.short;
-            if (userDeposit > 0) {
-
-                isWinner = true; // Người dùng thắng
-            }
         }
-
-        // Gửi sự kiện kết quả thắng/thua
-        emit MarketOutcome(winningSide, msg.sender, isWinner);
 
         require(userDeposit > 0, "No deposits on winning side");
 
         uint reward = (userDeposit * totalDeposited) / totalWinningDeposits;
-        uint fee = (reward * feePercentage) / 100;
+        uint fee = (reward * feePercentage) / 1000;
         uint finalReward = reward - fee;
 
         hasClaimed[msg.sender] = true;
@@ -174,7 +153,6 @@ contract BinaryOptionMarket is Ownable, ApolloReceiver {
         emit RewardClaimed(msg.sender, finalReward);
     }
 
-
     function withdraw() public onlyOwner {
         uint amount = address(this).balance;
         require(amount > 0, "No balance to withdraw.");
@@ -182,53 +160,24 @@ contract BinaryOptionMarket is Ownable, ApolloReceiver {
         emit Withdrawal(msg.sender, amount);    
     }
 
-
-    // question how should we call this frequently?
-    // answer we're going to call it from the resolveMarket - NAIVE method
-    function requestPriceFeed() internal {
-        // Requesting the ICP/USD price feed with a specified callback gas limit
-        uint256 requestId = apolloCoordinator.requestDataFeed(
-            "ICP/USD",
-            300000
-        );
+    function startBidding() external onlyOwner {
+        require(currentPhase == Phase.Trading, "Market not in Trading phase");
+        currentPhase = Phase.Bidding;
+        biddingStartTime = block.timestamp; // Set thời điểm bắt đầu bidding
     }
 
-    // Overriding the fulfillData function to handle incoming data
-    function fulfillData(bytes memory data) internal override {
-        (
-            uint256 _requestId,
-            string memory _dataFeedId,
-            uint256 _rate,
-            uint256 _decimals,
-            uint256 _timestamp
-        ) = abi.decode(data, (uint256, string, uint256, uint256, uint256));
-
-        resolveWithFulfilledData(_rate, _decimals, _timestamp);
-    }
-
-    function startTrading() external onlyOwner {
-        require(currentPhase == Phase.Bidding, "Market not in bidding phase");
-        currentPhase = Phase.Trading;
-    }
-
-    function expireMarket() external onlyOwner {
+    function expireMarket() external {
         require(currentPhase == Phase.Maturity, "Market not in maturity phase");
-        require(resolved == true, "Market is not resolved yet");
+        require(block.timestamp >= resolveTime + 30 seconds, "Too early to expire");
         currentPhase = Phase.Expiry;
     }
 
-    function parsePrice(
-        string memory priceString
-    ) internal pure returns (uint) {
-
+    function parsePrice(string memory priceString) internal pure returns (uint) {
         bytes memory priceBytes = bytes(priceString);
         uint price = 0;
 
         for (uint i = 0; i < priceBytes.length; i++) {
-            require(
-                priceBytes[i] >= 0x30 && priceBytes[i] <= 0x39,
-                "Invalid price string"
-            );
+            require(priceBytes[i] >= 0x30 && priceBytes[i] <= 0x39, "Invalid price string");
             price = price * 10 + (uint(uint8(priceBytes[i])) - 0x30);
         }
 
