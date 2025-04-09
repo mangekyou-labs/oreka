@@ -336,7 +336,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     } catch (error) {
       console.error("Error fetching market details:", error);
     }
-  };
+  }, [contractAddress]);
 
   const fetchContractBalance = async () => {
     try {
@@ -352,7 +352,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   // Thêm hàm kiểm tra kết quả market
   const checkMarketResult = async () => {
     if (!contract) return;
-
     try {
       const oracleDetails = await contract.oracleDetails();
       const finalPrice = parseFloat(oracleDetails.finalPrice);
@@ -381,12 +380,10 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   useEffect(() => {
     const checkTiming = async () => {
       if (!contract) return;
-
       try {
         const biddingStartTime = await contract.biddingStartTime();
         const resolveTime = await contract.resolveTime();
         const maturityTime = await contract.maturityTime();
-
         const now = Math.floor(Date.now() / 1000);
 
         // Có thể resolve khi đã đến maturityTime
@@ -1006,10 +1003,10 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const createInitialPositionHistory = (startTime: number) => {
     const nowTimestamp = Math.floor(Date.now() / 1000);
     const oneDay = 24 * 60 * 60;
-    
+
     // Tạo dữ liệu cho 7 ngày trước đó nếu có
     const history = [];
-    
+
     // Thêm điểm ban đầu (50/50)
     history.push({
       timestamp: startTime,
@@ -1018,7 +1015,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       isMainPoint: true,
       isFixed: true
     });
-    
+
     return history;
   };
 
@@ -1039,31 +1036,31 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   // Cập nhật positionHistory khi có thay đổi về positions
   useEffect(() => {
     if (!positions || !currentPhase || currentPhase < Phase.Bidding) return;
-    
+
     const longAmount = positions.long;
     const shortAmount = positions.short;
     const total = longAmount + shortAmount;
-    
+
     if (total > 0) {
       const longPercentage = (longAmount / total) * 100;
       const shortPercentage = (shortAmount / total) * 100;
       const timestamp = Math.floor(Date.now() / 1000);
-      
+
       // Thêm điểm mới vào positionHistory nếu có thay đổi đáng kể
       setPositionHistory(prev => {
         // Kiểm tra xem đã có điểm gần đây chưa
         const lastPoint = prev[prev.length - 1];
-        
+
         // Cập nhật isCurrentPoint cho tất cả các điểm
         const updatedHistory = prev.map(point => ({
           ...point,
           isCurrentPoint: false // Đặt tất cả false trước
         }));
-        
+
         // Chỉ thêm điểm mới nếu có thay đổi lớn hơn 0.5% hoặc sau 1 giờ
         const significantChange = Math.abs(lastPoint?.longPercentage - longPercentage) > 0.5;
         const timeChange = !lastPoint || (timestamp - lastPoint.timestamp) > 3600;
-        
+
         if (significantChange || timeChange) {
           const newPoint = {
             timestamp,
@@ -1073,14 +1070,14 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
             isFixed: false,
             isCurrentPoint: true // Đánh dấu điểm mới nhất
           };
-          
+
           const newHistory = [...updatedHistory, newPoint];
-          
+
           // Lưu vào localStorage
           localStorage.setItem(positionHistoryKey, JSON.stringify(newHistory));
           return newHistory;
         }
-        
+
         return updatedHistory;
       });
     }
@@ -1267,6 +1264,556 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
 
 
+  useEffect(() => {
+    const priceService = PriceService.getInstance();
+
+    const handlePriceUpdate = (priceData: PriceData) => {
+      setCurrentPrice(priceData.price);
+    };
+
+    // Subscribe to price updates when component mounts
+    priceService.subscribeToPriceUpdates(handlePriceUpdate, 'BTCUSDT', 5000);
+
+    // Cleanup subscription when component unmounts
+    return () => {
+      priceService.unsubscribeFromPriceUpdates(handlePriceUpdate);
+    };
+  }, []);
+
+  // Sửa lại useEffect cho price history
+  useEffect(() => {
+    const fetchPriceHistory = async () => {
+      try {
+        console.log('Fetching price history for symbol:', chartSymbol);
+        const priceService = PriceService.getInstance();
+        const klines = await priceService.fetchKlines(chartSymbol, '1m', 100);
+        setChartData(klines);
+      } catch (error) {
+        console.error("Error fetching price history:", error);
+      }
+    };
+
+    fetchPriceHistory();
+    const interval = setInterval(fetchPriceHistory, 60000);
+    return () => clearInterval(interval);
+  }, [chartSymbol]);
+
+  // Thêm hàm xử lý resolve và expire
+
+
+  const handleExpireMarket = async () => {
+    if (!contract) return;
+    try {
+      console.log("Attempting to expire market...");
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const signer = provider.getSigner();
+      const contractWithSigner = contract.connect(signer);
+
+      // Hiển thị thông báo đang xử lý
+      toast({
+        title: "Expiring market...",
+        description: "Please wait while the transaction is being processed",
+        status: "info",
+        duration: 5000,
+        isClosable: true,
+      });
+
+      const tx = await contractWithSigner.expireMarket({
+        gasLimit: 500000
+      });
+
+      console.log("Transaction sent:", tx.hash);
+
+      // Hiển thị thông báo transaction đã được gửi
+      toast({
+        title: "Transaction sent",
+        description: `Transaction hash: ${tx.hash.substring(0, 10)}...`,
+        status: "info",
+        duration: 5000,
+        isClosable: true,
+      });
+
+      await tx.wait();
+
+      // Hiển thị thông báo thành công
+      toast({
+        title: "Market expired successfully!",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Refresh market details
+      await fetchMarketDetails();
+
+      // Cập nhật UI ngay lập tức
+      setCurrentPhase(Phase.Expiry);
+      setCanExpire(false);
+
+      return true;
+    } catch (error: any) {
+      console.error("Error expiring market:", error);
+      toast({
+        title: "Failed to expire market",
+        description: error.message || "An unexpected error occurred",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    const loadContractData = async () => {
+      try {
+        const contractAddress = localStorage.getItem('selectedContractAddress');
+        if (!contractAddress) return;
+
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const contract = new ethers.Contract(
+          contractAddress,
+          BinaryOptionMarket.abi,
+          provider
+        );
+
+        // Lấy tất cả thông tin cần thiết từ contract
+        try {
+          const [
+            positions,
+            strikePriceBN,
+            phase,
+            biddingStartTime,
+            tradingPair,
+            deployTimestamp
+          ] = await Promise.all([
+            contract.positions(),
+            contract.strikePrice(),
+            contract.currentPhase(),
+            contract.biddingStartTime(),
+            contract.tradingPair().catch(() => 'Unknown'),
+            contract.deployTime()
+          ]);
+
+          // Cập nhật states
+          setContract(contract);
+          setContractAddress(contractAddress);
+          setStrikePrice(ethers.utils.formatUnits(strikePriceBN, 0));
+          setCurrentPhase(phase);
+          setTradingPair(tradingPair);
+          setBiddingStartTime(biddingStartTime.toNumber());
+          setDeployTime(deployTimestamp.toNumber());
+          // Set chart symbol dựa trên trading pair
+          const symbol = tradingPair === "BTC/USD" ? "BTCUSDT" :
+            tradingPair === "ETH/USD" ? "ETHUSDT" :
+              tradingPair === "ICP/USD" ? "ICPUSDT" : "BTCUSDT";
+          setChartSymbol(symbol);
+
+          // Cập nhật positions
+          setPositions({
+            long: parseFloat(ethers.utils.formatEther(positions.long)),
+            short: parseFloat(ethers.utils.formatEther(positions.short))
+          });
+
+        } catch (error) {
+          console.error("Error loading contract data:", error);
+          // Set default values nếu có lỗi
+          setTradingPair('Unknown');
+          setChartSymbol('BTCUSDT');
+        }
+
+      } catch (error) {
+        console.error("Error:", error);
+      }
+    };
+
+    loadContractData();
+  }, []);
+
+  // Sửa lại useEffect cho price chart
+  useEffect(() => {
+    const fetchPriceHistory = async () => {
+      try {
+        console.log('Fetching price history for symbol:', chartSymbol);
+        const priceService = PriceService.getInstance();
+        const klines = await priceService.fetchKlines(chartSymbol, '1m', 100);
+        setChartData(klines);
+      } catch (error) {
+        console.error("Error fetching price history:", error);
+      }
+    };
+
+    fetchPriceHistory();
+    const interval = setInterval(fetchPriceHistory, 60000);
+    return () => clearInterval(interval);
+  }, [chartSymbol]);
+
+  // Add near other state declarations
+  const phaseCircleProps = (phase: Phase) => ({
+    bg: currentPhase === phase ? "#FEDF56" : "gray.700",
+    color: currentPhase === phase ? "black" : "gray.500",
+    fontWeight: "bold",
+    zIndex: 1
+  });
+
+  // Thêm hàm resolve
+  const resolve = async () => {
+    if (!contract) return;
+
+    try {
+      console.log("Attempting to resolve market...");
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const signer = provider.getSigner();
+      const contractWithSigner = contract.connect(signer);
+
+      // Hiển thị thông báo đang xử lý
+      toast({
+        title: "Resolving market...",
+        description: "Please wait while the transaction is being processed",
+        status: "info",
+        duration: 5000,
+        isClosable: true,
+      });
+
+      const tx = await contractWithSigner.resolveMarket({
+        gasLimit: 500000
+      });
+
+      console.log("Transaction sent:", tx.hash);
+
+      // Hiển thị thông báo transaction đã được gửi
+      toast({
+        title: "Transaction sent",
+        description: `Transaction hash: ${tx.hash.substring(0, 10)}...`,
+        status: "info",
+        duration: 5000,
+        isClosable: true,
+      });
+
+      await tx.wait();
+
+      // Hiển thị thông báo thành công
+      toast({
+        title: "Market resolved successfully!",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Refresh market details
+      await fetchMarketDetails();
+
+      // Cập nhật UI ngay lập tức
+      setCurrentPhase(Phase.Maturity);
+      setCanResolve(false);
+
+      return true;
+    } catch (error: any) {
+      console.error("Error resolving market:", error);
+      toast({
+        title: "Failed to resolve market",
+        description: error.message || "An unexpected error occurred",
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+      return false;
+    }
+  };
+
+  // Thêm cleanup khi component unmount
+  useEffect(() => {
+    return () => {
+      if (contractAddress) {
+        // Lưu position history cuối cùng vào localStorage
+        localStorage.setItem(positionHistoryKey, JSON.stringify(positionHistory));
+      }
+    };
+  }, [contractAddress, positionHistory]);
+
+  // Thêm lại hàm claimReward
+  const claimReward = async () => {
+    if (!contract || currentPhase !== Phase.Expiry) return;
+
+    try {
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const signer = provider.getSigner();
+      const contractWithSigner = contract.connect(signer);
+
+      const tx = await contractWithSigner.claimReward();
+      await tx.wait();
+
+      // Update states after successful claim
+      await Promise.all([
+        fetchMarketDetails(),
+        fetchContractBalance()
+      ]);
+
+      await refreshBalance();
+      setShowClaimButton(false);
+      setReward(0);
+
+      toast({
+        title: "Success",
+        description: "Successfully claimed reward!",
+        status: "success",
+        duration: 3000,
+      });
+
+    } catch (error) {
+      console.error("Error claiming reward:", error);
+      toast({
+        title: "Error claiming reward",
+        description: error.message,
+        status: "error",
+        duration: 3000,
+      });
+    }
+  };
+
+  // Sửa lại hàm fetchPositionHistory
+  const fetchPositionHistory = async () => {
+    if (!contract) return [];
+    try {
+      const deployTime = await contract.deployTime();
+      if (!deployTime) throw new Error("Deploy time is null");
+
+      // Lấy block hiện tại
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const currentBlock = await provider.getBlockNumber();
+
+      // Lấy tất cả events từ block 0 đến block hiện tại
+      const events = await contract.queryFilter(
+        contract.filters.PositionUpdated(),
+        0,
+        currentBlock
+      );
+
+      // Sắp xếp events theo thời gian
+      const sortedEvents = events.sort((a, b) =>
+        a.args.timestamp.toNumber() - b.args.timestamp.toNumber()
+      );
+
+      return sortedEvents.map(event => ({
+        timestamp: event.args.timestamp.toNumber(),
+        longAmount: event.args.longAmount,
+        shortAmount: event.args.shortAmount
+      }));
+    } catch (error) {
+      console.error("Error fetching position history:", error);
+      return [];
+    }
+  };
+
+  // Thêm hàm helper để tạo các điểm phụ giữa các mốc chính
+  const createIntermediatePoints = (startTime: number, endTime: number) => {
+    const points: PositionPoint[] = [];
+    const interval = 1; // 1 giây cho mỗi điểm
+    const totalPoints = Math.floor((endTime - startTime) / interval);
+
+    for (let i = 0; i <= totalPoints; i++) {
+      const timestamp = startTime + (i * interval);
+      points.push({
+        timestamp,
+        longPercentage: null,
+        shortPercentage: null,
+        isMainPoint: false,
+        isFixed: false
+      });
+    }
+    return points;
+  };
+
+  // Sửa lại useEffect xử lý position history
+  useEffect(() => {
+    if (!contract) return;
+
+    const initializePositionData = async () => {
+      try {
+        const [deployTime, maturityTime] = await Promise.all([
+          contract.deployTime(),
+          contract.maturityTime()
+        ]);
+
+        const startTime = deployTime.toNumber();
+        const endTime = maturityTime.toNumber();
+        const mainInterval = Math.floor((endTime - startTime) / 9);
+
+        // Lấy lịch sử bidding
+        const bidHistory = await fetchPositionHistory();
+
+        // Tạo các điểm chính và phụ
+        const allPoints = [];
+        let currentPercentages = { long: 50, short: 50 }; // Bắt đầu với 50-50
+
+        for (let i = 0; i < 10; i++) {
+          const timestamp = startTime + (mainInterval * i);
+
+          // Cập nhật tỷ lệ dựa trên lịch sử bid
+          const previousBids = bidHistory.filter(bid => bid.timestamp <= timestamp);
+          if (previousBids.length > 0) {
+            const latestBid = previousBids[previousBids.length - 1];
+            const longValue = parseFloat(ethers.utils.formatEther(latestBid.longAmount));
+            const shortValue = parseFloat(ethers.utils.formatEther(latestBid.shortAmount));
+            const total = longValue + shortValue;
+
+            if (total > 0) {
+              currentPercentages = {
+                long: (longValue / total) * 100,
+                short: (shortValue / total) * 100
+              };
+            }
+          }
+
+          // Thêm điểm chính
+          allPoints.push({
+            timestamp,
+            longPercentage: currentPercentages.long,
+            shortPercentage: currentPercentages.short,
+            isMainPoint: true,
+            isFixed: timestamp < Date.now() / 1000
+          });
+
+          // Thêm điểm phụ nếu không phải điểm cuối
+          if (i < 9) {
+            const intermediatePoints = createIntermediatePoints(
+              timestamp,
+              startTime + (mainInterval * (i + 1))
+            );
+
+            // Áp dụng tỷ lệ hiện tại cho các điểm phụ
+            intermediatePoints.forEach(point => {
+              const pointTime = point.timestamp;
+              const relevantBids = bidHistory.filter(bid => bid.timestamp <= pointTime);
+
+              if (relevantBids.length > 0) {
+                const latestBid = relevantBids[relevantBids.length - 1];
+                const longValue = parseFloat(ethers.utils.formatEther(latestBid.longAmount));
+                const shortValue = parseFloat(ethers.utils.formatEther(latestBid.shortAmount));
+                const total = longValue + shortValue;
+
+                if (total > 0) {
+                  point.longPercentage = (longValue / total) * 100;
+                  point.shortPercentage = (shortValue / total) * 100;
+                } else {
+                  point.longPercentage = 50;
+                  point.shortPercentage = 50;
+                }
+              } else {
+                point.longPercentage = 50;
+                point.shortPercentage = 50;
+              }
+
+              point.isFixed = pointTime < Date.now() / 1000;
+            });
+
+            allPoints.push(...intermediatePoints);
+          }
+        }
+
+        setPositionHistory(allPoints);
+      } catch (error) {
+        console.error("Error initializing position data:", error);
+      }
+    };
+
+    const handlePositionUpdate = async () => {
+      try {
+        const positions = await contract.positions();
+        const longValue = parseFloat(ethers.utils.formatEther(positions.long));
+        const shortValue = parseFloat(ethers.utils.formatEther(positions.short));
+        const total = longValue + shortValue;
+
+        if (total > 0) {
+          const now = Math.floor(Date.now() / 1000);
+          const longPercentage = (longValue / total) * 100;
+          const shortPercentage = (shortValue / total) * 100;
+
+          setPositionHistory(prevHistory => {
+            return prevHistory.map(point => {
+              if (point.isFixed) return point;
+
+              if (point.timestamp > now) {
+                return {
+                  ...point,
+                  longPercentage: null,
+                  shortPercentage: null,
+                  isFixed: false
+                };
+              }
+
+              return {
+                ...point,
+                longPercentage,
+                shortPercentage,
+                isFixed: point.timestamp < now
+              };
+            });
+          });
+        }
+      } catch (error) {
+        console.error("Error handling position update:", error);
+      }
+    };
+
+    initializePositionData();
+    const interval = setInterval(handlePositionUpdate, 100);
+
+    return () => clearInterval(interval);
+  }, [contract]);
+
+  // Thêm hàm kiểm tra quyền hạn
+  const checkPermissions = async () => {
+    if (!contract || !walletAddress) return;
+
+    try {
+      // Kiểm tra xem contract có hàm owner() không
+      let owner;
+      try {
+        owner = await contract.owner();
+        setIsOwner(owner.toLowerCase() === walletAddress.toLowerCase());
+        console.log("Contract owner:", owner);
+        console.log("Current wallet:", walletAddress);
+        console.log("Is owner:", owner.toLowerCase() === walletAddress.toLowerCase());
+      } catch (e) {
+        console.log("Contract does not have owner() function or error occurred:", e);
+      }
+
+      // Kiểm tra xem có thể gọi hàm resolveMarket không
+      try {
+        // Chỉ kiểm tra xem hàm có tồn tại không, không thực sự gọi nó
+        const resolveFunction = contract.resolveMarket;
+        console.log("resolveMarket function exists:", !!resolveFunction);
+      } catch (e) {
+        console.log("Error checking resolveMarket function:", e);
+      }
+
+      // Kiểm tra xem có thể gọi hàm expireMarket không
+      try {
+        // Chỉ kiểm tra xem hàm có tồn tại không, không thực sự gọi nó
+        const expireFunction = contract.expireMarket;
+        console.log("expireMarket function exists:", !!expireFunction);
+      } catch (e) {
+        console.log("Error checking expireMarket function:", e);
+      }
+    } catch (error) {
+      console.error("Error checking permissions:", error);
+    }
+  };
+
+  // Gọi hàm kiểm tra quyền hạn khi component mount
+  useEffect(() => {
+    if (contract && walletAddress) {
+      checkPermissions();
+    }
+  }, [contract, walletAddress]);
+
+  const isMarketEnded = (maturityTime: any, phase: string): boolean => {
+    const currentTime = new Date();
+    const maturityDate = new Date(maturityTime * 1000);
+    return currentTime.getTime() >= maturityDate.getTime();
+  };
+
   return (
     <Box bg="black" minH="100vh">
       {/* Header Section */}
@@ -1340,7 +1887,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               p={3}
               mb={4}
               textAlign="center"
-              ml = "100px"
+              ml="100px"
               textColor="white"
             >
               <Text fontWeight="bold">Result: {marketResult}</Text>
@@ -1375,8 +1922,8 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                     options={{
                       showPrice: true,
                       showPositions: false,
-                      }}
-                    />
+                    }}
+                  />
                 </Box>
               </TabPanel>
 

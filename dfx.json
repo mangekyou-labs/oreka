@@ -1,11 +1,24 @@
 {
   "canisters": {
+    "factory": {
+      "main": "canisters/factory/src/main.mo",
+      "type": "motoko",
+      "dependencies": [
+        "binary_option_market"
+      ]
+    },
     "binary_option_market": {
       "main": "canisters/binary_option_market/src/main.mo",
       "type": "motoko",
       "dependencies": [
         "icp_ledger_canister"
       ]
+    },
+    "market_deployer": {
+      "type": "rust",
+      "package": "market_deployer",
+      "candid": "canisters/market_deployer/market_deployer.did",
+      "optimize": "size"
     },
     "binary_option_market_asset": {
       "dependencies": [
@@ -103,12 +116,13 @@
       "dependencies": [
         "binary_option_market"
       ]
-    }
-  },
-  "defaults": {
-    "build": {
-      "args": "",
-      "packtool": "mops sources"
+    },
+    "test_bid": {
+      "main": "test_bid.mo",
+      "type": "motoko",
+      "dependencies": [
+        "binary_option_market"
+      ]
     }
   },
   "output_env_file": ".env",

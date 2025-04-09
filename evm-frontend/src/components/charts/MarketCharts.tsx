@@ -33,9 +33,9 @@ interface MarketChartsProps {
   maturityTime: number;
 }
 
-const MarketCharts: React.FC<MarketChartsProps> = ({ 
-  chartData, 
-  positionHistory, 
+const MarketCharts: React.FC<MarketChartsProps> = ({
+  chartData,
+  positionHistory,
   positions,
   strikePrice,
   timeRange = '1w',
@@ -56,7 +56,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
           console.warn("No chartSymbol provided to MarketCharts");
           return;
         }
-        
+
         const priceService = PriceService.getInstance();
         const klines = await priceService.fetchKlines(chartSymbol, '1m', 100, timeRange);
         setChartData(klines);
@@ -81,11 +81,11 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
   // Filter data based on time range
   const getFilteredData = (data: any[], range: string) => {
     if (!data || data.length === 0) return [];
-    
+
     const now = Date.now();
     let filterTime: number;
-    
-    switch(range) {
+
+    switch (range) {
       case '1d':
         filterTime = now - 24 * 60 * 60 * 1000; // 1 day
         break;
@@ -99,7 +99,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
       default:
         return data;
     }
-    
+
     return data.filter(item => item.time > filterTime || item.timestamp > filterTime / 1000);
   };
 
@@ -109,15 +109,15 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
   // Cải thiện hàm tạo mốc thời gian cố định
   const getFixedPositionTicks = () => {
     if (!biddingStartTime || !maturityTime) return [];
-    
+
     const ticks = [];
     const timeRange = maturityTime - biddingStartTime;
     const interval = timeRange / 8;
-    
+
     for (let i = 0; i <= 8; i++) {
       ticks.push(biddingStartTime + Math.floor(interval * i));
     }
-    
+
     return ticks;
   };
 
@@ -133,10 +133,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
       const timestamp = new Date(label * 1000);
       const longValue = payload.find((p: any) => p.dataKey === 'longPercentage')?.value;
       const shortValue = payload.find((p: any) => p.dataKey === 'shortPercentage')?.value;
-      
+
       return (
-        <div style={{ 
-          backgroundColor: 'rgba(0, 0, 0, 0.8)', 
+        <div style={{
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
           padding: '10px',
           border: '1px solid #FEDF56',
           borderRadius: '4px',
@@ -157,8 +157,8 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={filteredChartData}>
             <CartesianGrid strokeDasharray="2 2" stroke="#333" />
-            <XAxis 
-              dataKey="time" 
+            <XAxis
+              dataKey="time"
               tickFormatter={(time) => new Date(time).toLocaleTimeString()}
               stroke="#F0FFFF"
               tick={{ fontSize: 12 }}
@@ -166,30 +166,30 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
             />
             <YAxis domain={['auto', 'auto']} stroke="#F0FFFF" />
             {strikePrice && (
-              <ReferenceLine 
-                y={strikePrice} 
-                stroke="#FEDF56" 
-                strokeDasharray="2 2" 
-                label={{ 
-                  value: `Strike: ${strikePrice}`, 
+              <ReferenceLine
+                y={strikePrice}
+                stroke="#FEDF56"
+                strokeDasharray="2 2"
+                label={{
+                  value: `Strike: ${strikePrice}`,
                   position: 'right',
                   fill: '#FEDF56'
-                }} 
+                }}
               />
             )}
             <Tooltip
-              contentStyle={{ 
-                backgroundColor: '#000', 
+              contentStyle={{
+                backgroundColor: '#000',
                 border: '1px solid #FEDF56',
                 color: '#FF7F50'
               }}
               formatter={(value: number) => [`${value.toFixed(2)} USD`, 'Price']}
               labelFormatter={(time) => new Date(time).toLocaleString()}
             />
-            <Line 
-              type="monotone" 
-              dataKey="close" 
-              stroke="#FF7F50" 
+            <Line
+              type="monotone"
+              dataKey="close"
+              stroke="#FF7F50"
               dot={false}
               strokeWidth={2}
             />
@@ -210,9 +210,9 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
 
       // Lọc dữ liệu position history đến thời điểm hiện tại
       let filteredData = positionHistory
-        .filter(p => 
-          p.longPercentage !== null && 
-          p.shortPercentage !== null && 
+        .filter(p =>
+          p.longPercentage !== null &&
+          p.shortPercentage !== null &&
           p.timestamp <= currentTime
         )
         .sort((a, b) => a.timestamp - b.timestamp);
@@ -233,7 +233,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
         const total = positions.long + positions.short;
         const longPercentage = total > 0 ? (positions.long / total) * 100 : 50;
         const shortPercentage = total > 0 ? (positions.short / total) * 100 : 50;
-        
+
         filteredData.push({
           timestamp: currentTime,
           longPercentage,
@@ -248,10 +248,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
 
     // Lấy dữ liệu hiện tại cho biểu đồ
     const currentPositionData = createCurrentTimeData();
-    
+
     // Lấy các mốc thời gian cố định
     const fixedTicks = getFixedPositionTicks();
-    
+
     // Render custom dots cho line
     const renderDot = (props: any) => {
       const { cx, cy, payload } = props;
@@ -269,7 +269,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={currentPositionData}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-            <XAxis 
+            <XAxis
               dataKey="timestamp"
               type="number"
               domain={[biddingStartTime, maturityTime]}
@@ -280,7 +280,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
               tick={{ fill: 'rgba(254, 223, 86, 0.7)', fontSize: 12 }}
               axisLine={{ stroke: '#333' }}
             />
-            <YAxis 
+            <YAxis
               domain={[0, 100]}
               tickFormatter={(value) => `${value.toFixed(1)}%`}
               stroke="rgba(254, 223, 86, 0.7)"
@@ -288,8 +288,8 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
               axisLine={{ stroke: '#333' }}
             />
             <Tooltip content={<CustomTooltip />} />
-            <Legend 
-              verticalAlign="top" 
+            <Legend
+              verticalAlign="top"
               height={36}
               formatter={(value, entry) => {
                 const totalEth = value === "LONG" ? positions.long : positions.short;
@@ -302,7 +302,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
               }}
             />
             <ReferenceLine y={50} stroke="#FEDF56" strokeDasharray="3 3" />
-            <Line 
+            <Line
               type="monotone"
               dataKey="longPercentage"
               stroke="#00D7B5"
@@ -313,7 +313,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
               connectNulls={true}
               isAnimationActive={false}
             />
-            <Line 
+            <Line
               type="monotone"
               dataKey="shortPercentage"
               stroke="#FF6384"

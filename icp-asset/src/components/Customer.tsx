@@ -2,11 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useCallback } from 'react'; // Thêm import useCallback
 import {
     Flex, Box, Text, Button, VStack, useToast, Input,
-    Select, HStack, Icon, ScaleFade, Table, Thead, Tbody, Tr, Th, Td
+    Select, HStack, Icon, ScaleFade, Table, Thead, Tbody, Tr, Th, Td, TableContainer
 } from '@chakra-ui/react';
 import { FaEthereum, FaWallet, FaTrophy } from 'react-icons/fa';
 
-import { motion, useAnimation } from 'framer-motion';
 import { useRouter } from 'next/router';
 import { BinaryOptionMarketService, IBinaryOptionMarketService } from '../service/binary-option-market-service';
 import { Principal } from '@dfinity/principal';
@@ -14,6 +13,12 @@ import { current } from '@reduxjs/toolkit';
 import { AuthClient } from '@dfinity/auth-client';
 import { setActorIdentity, setIcpLedgerIdentity } from '../service/actor-locator';
 import { IIcpLedgerService, IcpLedgerService } from '../service/icp-ledger-service';
+
+// Add typings import for ICRC1 Account
+import type { Account as ICRC1Account } from '../service/icp-ledger-service';
+
+// Add import for FactoryService
+import { FactoryService, MarketInfo } from '../service/factory-service';
 
 enum Side { Long, Short }
 enum Phase { Bidding, Trading, Maturity, Expiry }
@@ -43,6 +48,7 @@ function Customer() {
     const [countdown, setCountdown] = useState<number | null>(null);
     const [reward, setReward] = useState(0); // Số phần thưởng khi người chơi thắng
     const [positions, setPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
+    const [totalMarketPositions, setTotalMarketPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
 
     const [authenticated, setAuthenticated] = useState(false);
 
@@ -55,12 +61,17 @@ function Customer() {
     ]);
 
     const toast = useToast();
-    const priceControls = useAnimation();
     const router = useRouter(); // Initialize the router
     const [marketService, setMarketService] = useState<BinaryOptionMarketService | null>(null);
     const [ledgerService, setLedgerService] = useState<IcpLedgerService | null>(null);
     const [shouldCheckRewardClaimability, setShouldCheckRewardClaimability] = useState(false);
-    const [identityPrincipal, setIdentityPrincipal] = useState("")
+    const [identityPrincipal, setIdentityPrincipal] = useState("");
+    const [marketId, setMarketId] = useState<string | null>(null);
+
+    // Add a state to track if we need to show the market selection view
+    const [showMarketSelection, setShowMarketSelection] = useState(false);
+    const [factoryService, setFactoryService] = useState<FactoryService | null>(null);
+    const [availableMarkets, setAvailableMarkets] = useState<MarketInfo[]>([]);
 
     const formatTimeRemaining = (timestampSec: number): string => {
         const now = Math.floor(Date.now() / 1000); // Convert current time to seconds
@@ -90,10 +101,77 @@ function Customer() {
     // }, [isLoggedIn]);
 
     useEffect(() => {
-        const initService = async () => {
+        // Check for marketId in the URL query parameters
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const marketIdFromUrl = params.get('marketId');
+
+            if (marketIdFromUrl) {
+                console.log("Market ID from URL:", marketIdFromUrl);
+                // Only set if changed to avoid unnecessary reloads
+                if (marketId !== marketIdFromUrl) {
+                    setMarketId(marketIdFromUrl);
+                    setShowMarketSelection(false);
+                }
+            } else {
+                // No market ID in URL, always show market selection first
+                console.log("No market ID available, showing market selection");
+                setShowMarketSelection(true);
+                setMarketId(null);
+            }
+        }
+    }, [marketId, router]);
+
+    // This effect will handle market service reinitialization when marketId changes
+    useEffect(() => {
+        if (marketId && marketService) {
+            console.log("Reinitializing market service with ID:", marketId);
+            marketService.initialize(marketId)
+                .then(() => {
+                    // After reinitialization, refresh market details
+                    if (typeof fetchMarketDetails === 'function') {
+                        fetchMarketDetails();
+                    }
+                })
+                .catch(error => {
+                    console.error("Error reinitializing market service:", error);
+                });
+        }
+    }, [marketId, marketService]);
+
+    // Add function to fetch markets from factory
+    const fetchAvailableMarkets = useCallback(async () => {
+        if (!factoryService) return;
+
+        try {
+            const markets = await factoryService.getMarkets();
+            setAvailableMarkets(markets);
+        } catch (error) {
+            console.error("Error fetching markets:", error);
+            // Fallback to at least show the default market if available
+            const defaultId = process.env.NEXT_PUBLIC_BINARY_OPTION_MARKET_CANISTER_ID || "";
+            if (defaultId) {
+                setAvailableMarkets([{
+                    id: defaultId,
+                    name: "Default Market",
+                    createdAt: BigInt(0) // Use zero timestamp for fallback 
+                }]);
+            }
+        }
+    }, [factoryService]);
+
+    // Initialize factory service along with other services
+    useEffect(() => {
+        const initServices = async () => {
             const authClient = await AuthClient.create();
             const identity = authClient.getIdentity();
 
+            // Initialize factory service first
+            const factory = FactoryService.getInstance();
+            await factory.initialize();
+            setFactoryService(factory);
+
+            // Initialize other services as before
             setIcpLedgerIdentity(identity)
             const icpLedgerService = IcpLedgerService.getInstance();
             await icpLedgerService.initialize();
@@ -101,14 +179,34 @@ function Customer() {
 
             await setActorIdentity(identity)
             const service = BinaryOptionMarketService.getInstance();
-            await service.initialize();
+
+            // Only initialize market service if we have a market ID
+            if (marketId) {
+                console.log("Initializing market service with canister ID:", marketId);
+                await service.initialize(marketId);
+                setShowMarketSelection(false);
+            } else {
+                // If no market ID, fetch available markets and show selection
+                console.log("No market ID, showing selection");
+                setShowMarketSelection(true);
+                const markets = await factory.getMarkets();
+                setAvailableMarkets(markets);
+            }
+
             setMarketService(service);
         };
 
-        if (authenticated && (!marketService || !ledgerService)) {
-            initService();
+        if (authenticated && (!factoryService || !marketService || !ledgerService)) {
+            initServices();
         }
-    }, [authenticated]);
+    }, [authenticated, marketId]);
+
+    // Fetch markets when showing selection view
+    useEffect(() => {
+        if (showMarketSelection && factoryService) {
+            fetchAvailableMarkets();
+        }
+    }, [showMarketSelection, factoryService, fetchAvailableMarkets]);
 
     const fetchMarketDetails = useCallback(async () => {
         if (marketService) {
@@ -137,14 +235,20 @@ function Customer() {
                 setStrikePrice(strikePrice); // Giả định 8 số thập phân
                 setFinalPrice(finalPrice);   // Giả định 8 số thập phân
 
+                // Get user position
                 const userPosition = await marketService.getUserPosition(Principal.fromText(identityPrincipal));
-
                 if (userPosition) {
                     setPositions({ long: Number(userPosition.long) / 10e7, short: Number(userPosition.short) / 10e7 });
                 } else {
                     console.error("User position is null. Setting default positions.");
                     setPositions({ long: 0, short: 0 });
                 }
+
+                // Get total market positions
+                setTotalMarketPositions({
+                    long: Number(marketDetails.positions.long) / 10e7,
+                    short: Number(marketDetails.positions.short) / 10e7
+                });
 
                 const totalDeposit = await marketService.getTotalDeposit()
                 setTotalDeposited(Number(totalDeposit) / 10e7)
@@ -294,55 +398,58 @@ function Customer() {
     // Hàm đặt cược
     const handleBid = async (side: Side, amount: number) => {
         try {
-            if (!marketService || !ledgerService) throw new Error("Service not initialized");
-
-            const phase = await marketService.getCurrentPhase();
-            if (!('Bidding' in phase)) {
-                throw new Error("Market is not in trading phase");
+            if (!marketService || !ledgerService) {
+                throw new Error("Services not initialized");
             }
 
+            const amountInE8s = BigInt(Math.floor(amount * 10e7));
+            console.log("Amount in e8s:", amountInE8s.toString());
 
-            const approveResult = await ledgerService.approve({
+            // First approve the market canister to spend your tokens
+            const approveArgs = {
                 spender: {
-                    owner: Principal.fromText(process.env.NEXT_PUBLIC_BINARY_OPTION_MARKET_CANISTER_ID ?? ""),
+                    owner: Principal.fromText(marketId || ""),
                     subaccount: []
                 },
-                amount: BigInt((amount * 10e7) + 10e7)
-            })
+                amount: amountInE8s,
 
-            console.log(approveResult)
+            };
 
-            const bidResult = await marketService.bid(
+            const approveResult = await ledgerService.approve(approveArgs);
+            console.log("Approve result:", approveResult);
+
+            // Now place the bid
+            const result = await marketService.bid(
                 side === Side.Long ? { Long: null } : { Short: null },
-                amount * 10e7
+                amountInE8s
             );
 
-            // @TODO: add a way to handle this
-            if (('ok' in bidResult)) {
-
-                setSelectedSide(side)
+            console.log("Bid result:", result);
+            if ('ok' in result) {
                 toast({
-                    title: "Bid successfully!",
-                    description: `You've successfully bidded your side.`,
+                    description: "Bid placed successfully!",
                     status: "success",
                     duration: 3000,
                     isClosable: true,
                 });
-            }
-
-            if (('err' in bidResult)) {
+                // Refresh data after successful bid
+                await fetchMarketDetails();
+            } else {
                 toast({
-                    title: "Bid failed!",
-                    description: `You broke something`,
+                    description: "Failed to place bid: " + result.err,
                     status: "error",
                     duration: 3000,
                     isClosable: true,
                 });
             }
-
-            console.log(bidResult)
-        } catch (error) {
-            console.error("Error placing bid:", error);
+        } catch (err) {
+            console.error('Error placing bid:', err);
+            toast({
+                description: err instanceof Error ? err.message : "An unexpected error occurred",
+                status: "error",
+                duration: 3000,
+                isClosable: true,
+            });
         }
     };
 
@@ -372,7 +479,7 @@ function Customer() {
 
                 // setBalance(newBalanceEth);  // Cập nhật lại số dư
                 // setReward(finalReward);  // Reset lại reward sau khi claim
-                // setShowClaimButton(false);  // Ẩn n����t claim sau khi đã nhận
+                // setShowClaimButton(false);  // Ẩn nt claim sau khi đã nhận
 
 
                 setTotalDeposited(0);
@@ -462,12 +569,9 @@ function Customer() {
 
     // Reset lại thị trường
     const resetMarket = () => {
-        setPositions({ long: 0, short: 0 });
-        setTotalDeposited(0);
-        setStrikePrice(0); // Đặt lại giá strikePrice mặc định hoặc giá khởi tạo
+        setStrikePrice(0);
         setFinalPrice(0);
         setCurrentPhase(Phase.Bidding);
-        priceControls.set({ opacity: 1, color: "#FEDF56" });
     };
 
 
@@ -475,56 +579,98 @@ function Customer() {
         return `${address.slice(0, 6)}...${address.slice(-4)}`;
     };
 
+    const isPhase = (phase: Phase, phaseName: string): boolean => {
+        return Object.keys(phase)[0] === phaseName;
+    };
+
+    const getDisplayPrice = () => {
+        if (countdown !== null) {
+            return countdown;
+        }
+        return strikePrice.toString();
+    };
+
+    // Add a function to select a market
+    const selectMarket = (marketId: string) => {
+        router.push(`?marketId=${marketId}`);
+        setMarketId(marketId);
+        setShowMarketSelection(false);
+    };
+
+    // Add/update the renderMarketSelection function to show market selection UI
+    const renderMarketSelection = () => {
+        return (
+            <Box p={6} maxW="800px" mx="auto" bg="gray.800" borderRadius="md" mt={8}>
+                <Text fontSize="2xl" fontWeight="bold" mb={6} textAlign="center" color="white">
+                    Select a Market
+                </Text>
+                {availableMarkets.length === 0 ? (
+                    <Text color="gray.400" textAlign="center">Loading available markets...</Text>
+                ) : (
+                    <VStack spacing={4} align="stretch">
+                        {availableMarkets.map((market) => (
+                            <Button
+                                key={market.id}
+                                onClick={() => {
+                                    router.push(`?marketId=${market.id}`);
+                                    setMarketId(market.id);
+                                    setShowMarketSelection(false);
+                                }}
+                                colorScheme="yellow"
+                                bg="#FEDF56"
+                                color="black"
+                                size="lg"
+                                _hover={{ bg: "#FFE980" }}
+                                justifyContent="space-between"
+                                p={6}
+                            >
+                                <Text fontWeight="bold">{market.name || market.id}</Text>
+                                <Text fontSize="sm" opacity={0.8}>Created: {new Date(Number(market.createdAt) / 1000000).toLocaleString()}</Text>
+                            </Button>
+                        ))}
+                    </VStack>
+                )}
+            </Box>
+        );
+    };
+
     return (
         <Flex direction="column" alignItems="center" justifyContent="flex-start" p={6} bg="black" minH="100vh" position="relative">
-            <VStack
-                width={{ base: '90%', md: '700px' }}
-                spacing={8}
-                align="stretch"
-                color="#FEDF56"
-                fontFamily="Arial, sans-serif"
-            >
-                {authenticated && (
-                    <HStack spacing={4} justify="space-between" width="100%">
-                        <HStack>
-                            <Icon as={FaWallet} />
-                            <Text>{abbreviateAddress(identityPrincipal)}</Text>
-                        </HStack>
-                        <HStack>
-                            <Icon as={FaEthereum} />
-                            <Text>{balance} ICP</Text>
-                        </HStack>
-                        <HStack>
-                            {/* <Icon as={FaTrophy} />
+            {showMarketSelection ? (
+                renderMarketSelection()
+            ) : (
+                <VStack
+                    width={{ base: '90%', md: '700px' }}
+                    spacing={8}
+                    align="stretch"
+                >
+                    {authenticated && (
+                        <HStack spacing={4} justify="space-between" width="100%">
+                            <HStack>
+                                <Icon as={FaWallet} />
+                                <Text>{abbreviateAddress(identityPrincipal)}</Text>
+                            </HStack>
+                            <HStack>
+                                <Icon as={FaEthereum} />
+                                <Text>{balance} ICP</Text>
+                            </HStack>
+                            <HStack>
+                                {/* <Icon as={FaTrophy} />
               <Text>{accumulatedWinnings.toFixed(4)} ETH</Text> */}
-                            {reward > 0 && showClaimButton && (
-                                <Button onClick={claimReward} size="sm" colorScheme="yellow" variant="outline"
-                                    isDisabled={reward === 0}
-                                >
-                                    Claim {reward.toFixed(4)} ICP
-                                </Button>
-                            )}
+                                {reward > 0 && showClaimButton && (
+                                    <Button onClick={claimReward} size="sm" colorScheme="yellow" variant="outline"
+                                        isDisabled={reward === 0}
+                                        borderRadius="full"
+                                    >
+                                        Claim {reward.toFixed(4)} ICP
+                                    </Button>
+                                )}
+                            </HStack>
                         </HStack>
-                    </HStack>
-                )}
+                    )}
 
-                {authenticated ? (
-                    <>
-                        <Select
-                            placeholder="Select Coin"
-                            onChange={handleCoinSelect}
-                            value={selectedCoin?.value || ''}
-                            color="black"
-                            bg="#FEDF56"
-                            size="lg"
-                        >
-                            {availableCoins.map((coin) => (
-                                <option key={coin.value} value={coin.value}>
-                                    {coin.label}
-                                </option>
-                            ))}
-                        </Select>
-                        {selectedCoin && (
+                    {authenticated ? (
+                        <>
                             <VStack spacing={8} alignItems="center">
                                 <Box
                                     border="2px solid #FEDF56"
@@ -533,11 +679,11 @@ function Customer() {
                                     width="100%"
                                     textAlign="center"
                                 >
-                                    <motion.div animate={priceControls}>
+                                    <Box textAlign="center">
                                         <Text fontSize="4xl" fontWeight="bold">
-                                            {countdown !== null ? "" : ((currentPhase === Phase.Maturity || currentPhase === Phase.Expiry) ? finalPrice : strikePrice)}
+                                            {getDisplayPrice()}
                                         </Text>
-                                    </motion.div>
+                                    </Box>
                                 </Box>
                                 <VStack spacing={2}>
                                     <Text fontSize="lg">Current Phase: {Phase[currentPhase]}</Text>
@@ -575,7 +721,7 @@ function Customer() {
                                     <Flex justify="center" gap="100px">
                                         <Button
                                             onClick={() => handleBid(Side.Long, Number(bidAmount))}
-                                            isDisabled={!bidAmount || Number(bidAmount) <= 0 || !selectedCoin || currentPhase !== Phase.Bidding}
+                                            isDisabled={!bidAmount || Number(bidAmount) <= 0 || currentPhase !== Phase.Bidding}
                                             bg="#FEDF56"
                                             color="black"
                                             _hover={{ bg: "#D5D5D5", color: "green", transform: "scale(1.2)" }}
@@ -583,12 +729,13 @@ function Customer() {
                                             height="50px"
                                             fontSize="xl"
                                             transition="all 0.2s"
+                                            borderRadius="full"
                                         >
                                             Up
                                         </Button>
                                         <Button
                                             onClick={() => handleBid(Side.Short, Number(bidAmount))}
-                                            isDisabled={!bidAmount || Number(bidAmount) <= 0 || !selectedCoin || currentPhase !== Phase.Bidding}
+                                            isDisabled={!bidAmount || Number(bidAmount) <= 0 || currentPhase !== Phase.Bidding}
                                             bg="#FEDF56"
                                             color="black"
                                             _hover={{ bg: "#D5D5D5", color: "red", transform: "scale(1.2)" }}
@@ -596,87 +743,154 @@ function Customer() {
                                             height="50px"
                                             fontSize="xl"
                                             transition="all 0.2s"
+                                            borderRadius="full"
                                         >
                                             Down
                                         </Button>
                                     </Flex>
 
-                                    <Table variant="simple" colorScheme="yellow">
-                                        <Thead>
-                                            <Tr>
-                                                <Th color="#FEDF56">Position</Th>
-                                                <Th color="#FEDF56" isNumeric>Your Bid</Th>
-                                                <Th color="#FEDF56" isNumeric>Total Market</Th>
-                                            </Tr>
-                                        </Thead>
-                                        <Tbody>
-                                            <Tr>
-                                                <Td>Long</Td>
-                                                <Td isNumeric>{positions.long.toFixed(4)} ICP</Td>
-                                                <Td isNumeric>{positions.long.toFixed(4)} ICP</Td>
-                                            </Tr>
-                                            <Tr>
-                                                <Td>Short</Td>
-                                                <Td isNumeric>{positions.short.toFixed(4)} ICP</Td>
-                                                <Td isNumeric>{positions.short.toFixed(4)} ICP</Td>
-                                            </Tr>
-                                        </Tbody>
-                                    </Table>
+                                    <Box marginTop="20px" width="100%">
+                                        <TableContainer
+                                            borderRadius="xl"
+                                            overflow="hidden"
+                                            border="1px solid rgba(254, 223, 86, 0.3)"
+                                            bg="rgba(0, 0, 0, 0.5)"
+                                            width="100%"
+                                        >
+                                            <Table variant="unstyled" width="100%">
+                                                <Thead bg="rgba(17, 22, 11, 0.7)">
+                                                    <Tr>
+                                                        <Th
+                                                            color="#FEDF56"
+                                                            width="33%"
+                                                            textAlign="left"
+                                                            borderBottom="none"
+                                                            py={4}
+                                                            px={6}
+                                                            fontWeight="semibold"
+                                                        >
+                                                            Position
+                                                        </Th>
+                                                        <Th
+                                                            color="#FEDF56"
+                                                            width="33%"
+                                                            textAlign="center"
+                                                            borderBottom="none"
+                                                            py={4}
+                                                            fontWeight="semibold"
+                                                        >
+                                                            Your Bid
+                                                        </Th>
+                                                        <Th
+                                                            color="#FEDF56"
+                                                            width="33%"
+                                                            textAlign="center"
+                                                            borderBottom="none"
+                                                            py={4}
+                                                            pr={6}
+                                                            fontWeight="semibold"
+                                                        >
+                                                            Total Market
+                                                        </Th>
+                                                    </Tr>
+                                                </Thead>
+                                                <Tbody>
+                                                    <Tr>
+                                                        <Td
+                                                            color="#FEDF56"
+                                                            fontWeight="medium"
+                                                            py={4}
+                                                            px={6}
+                                                            borderTop="1px solid rgba(0, 0, 0, 0.3)"
+                                                        >
+                                                            Long
+                                                        </Td>
+                                                        <Td
+                                                            color="#FEDF56"
+                                                            textAlign="center"
+                                                            py={4}
+                                                            borderTop="1px solid rgba(0, 0, 0, 0.3)"
+                                                        >
+                                                            {positions.long.toFixed(4)} ICP
+                                                        </Td>
+                                                        <Td
+                                                            color="#FEDF56"
+                                                            textAlign="center"
+                                                            py={4}
+                                                            pr={6}
+                                                            borderTop="1px solid rgba(0, 0, 0, 0.3)"
+                                                        >
+                                                            {totalMarketPositions.long.toFixed(4)} ICP
+                                                        </Td>
+                                                    </Tr>
+                                                    <Tr>
+                                                        <Td
+                                                            color="#FEDF56"
+                                                            fontWeight="medium"
+                                                            py={4}
+                                                            px={6}
+                                                            borderTop="1px solid rgba(0, 0, 0, 0.3)"
+                                                        >
+                                                            Short
+                                                        </Td>
+                                                        <Td
+                                                            color="#FEDF56"
+                                                            textAlign="center"
+                                                            py={4}
+                                                            borderTop="1px solid rgba(0, 0, 0, 0.3)"
+                                                        >
+                                                            {positions.short.toFixed(4)} ICP
+                                                        </Td>
+                                                        <Td
+                                                            color="#FEDF56"
+                                                            textAlign="center"
+                                                            py={4}
+                                                            pr={6}
+                                                            borderTop="1px solid rgba(0, 0, 0, 0.3)"
+                                                        >
+                                                            {totalMarketPositions.short.toFixed(4)} ICP
+                                                        </Td>
+                                                    </Tr>
+                                                </Tbody>
+                                            </Table>
+                                        </TableContainer>
+                                    </Box>
                                 </VStack>
                             </VStack>
-                        )}
-                    </>
-                ) : (
-                    <Button
-                        onClick={() => signIn()}
-                        backgroundColor="#FEDF56"
-                        color="#5D3A1A"
-                        _hover={{ backgroundColor: "#D5D5D5" }}
-                        padding="25px"
-                        borderRadius="full"
-                        fontWeight="bold"
-                        fontSize="xl"
-                        w="full"
-                    >
-                        Login
-                    </Button>
-                )}
-            </VStack>
-
-            {countdown !== null && (
-                <Box
-                    position="fixed"
-                    top="50%"
-                    left="50%"
-                    transform="translate(-50%, -50%)"
-                    bg="rgba(0, 0, 0, 0.8)"
-                    color="#FEDF56"
-                    fontSize="6xl"
-                    fontWeight="bold"
-                    p={8}
-                    borderRadius="xl"
-                    zIndex={1000}
-                >
-                    {countdown}
-                </Box>
+                        </>
+                    ) : (
+                        <Button
+                            onClick={() => signIn()}
+                            backgroundColor="#FEDF56"
+                            color="#5D3A1A"
+                            _hover={{ backgroundColor: "#D5D5D5" }}
+                            padding="25px"
+                            borderRadius="full"
+                            fontWeight="bold"
+                            fontSize="xl"
+                            w="full"
+                        >
+                            Login
+                        </Button>
+                    )}
+                </VStack>
             )}
-            <ScaleFade initialScale={0.9} in={showResult}>
+            {showResult && (
                 <Box
                     position="fixed"
-                    top="50%"
+                    bottom={4}
                     left="50%"
-                    transform="translate(-50%, -50%)"
+                    transform="translateX(-50%)"
                     bg={resultMessage === "YOU WIN" ? "green.500" : "red.500"}
                     color="white"
-                    fontSize="5xl"
-                    fontWeight="bold"
-                    p={8}
-                    borderRadius="xl"
-                    zIndex={1000}
+                    px={6}
+                    py={3}
+                    borderRadius="md"
+                    boxShadow="lg"
                 >
                     {resultMessage}
                 </Box>
-            </ScaleFade>
+            )}
         </Flex>
     );
 }

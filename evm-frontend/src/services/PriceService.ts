@@ -1,4 +1,4 @@
-import {  } from '../components/Customer';
+import { } from '../components/Customer';
 export interface PriceData {
   price: number;
   symbol: string;
@@ -10,7 +10,7 @@ export class PriceService {
   private priceSubscribers: ((data: PriceData) => void)[] = [];
   private currentInterval: NodeJS.Timeout | null = null;
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): PriceService {
     if (!PriceService.instance) {
@@ -42,11 +42,11 @@ export class PriceService {
     try {
       // Format symbol cho Coinbase API
       const coinbaseSymbol = this.formatSymbolForCoinbase(chartSymbol);
-      
+
       // Sử dụng symbol đã format để lấy giá
       const response = await fetch(`https://api.coinbase.com/v2/prices/${coinbaseSymbol}/spot`);
       const data = await response.json();
-      
+
       return {
         price: parseFloat(data.data.amount),
         symbol: chartSymbol,
@@ -54,7 +54,7 @@ export class PriceService {
       };
     } catch (error) {
       console.error('Error fetching price from Coinbase:', error);
-      
+
       // Fallback nếu API Coinbase không hoạt động
       try {
         const binanceSymbol = this.formatSymbolForBinance(chartSymbol);
@@ -92,7 +92,7 @@ export class PriceService {
 
   public unsubscribeFromPriceUpdates(callback: (data: PriceData) => void) {
     this.priceSubscribers = this.priceSubscribers.filter(sub => sub !== callback);
-    
+
     if (this.priceSubscribers.length === 0 && this.currentInterval) {
       clearInterval(this.currentInterval);
       this.currentInterval = null;
@@ -103,7 +103,7 @@ export class PriceService {
     try {
       // Adjust limit based on time range
       let adjustedLimit = limit;
-      switch(timeRange) {
+      switch (timeRange) {
         case '1d':
           adjustedLimit = 24 * 60; // 1 day in minutes
           break;
@@ -120,10 +120,10 @@ export class PriceService {
           interval = '1h';
           break;
       }
-      
+
       // Cap at 1000 which is Binance's limit
       adjustedLimit = Math.min(adjustedLimit, 1000);
-      
+
       // Format symbol cho Binance API
       const binanceSymbol = this.formatSymbolForBinance(symbol);
       const response = await fetch(

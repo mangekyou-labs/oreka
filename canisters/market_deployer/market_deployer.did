@@ -1,0 +1,36 @@
+type DeployedMarket = record {
+  canister_id : principal;
+  owner : principal;
+  name : text;
+  created_at : nat64;
+};
+
+type DeploymentError = variant {
+  InvalidParams : text;
+  CanisterCreationFailed : text;
+  ControllerUpdateFailed : text;
+  CodeInstallationFailed : text;
+  InsufficientCycles;
+  Unknown : text;
+};
+
+type MarketParams = record {
+  name : text;
+  strike_price : float64;
+  maturity_time : int64;
+  fee_percentage : nat64;
+  trading_pair : text;
+};
+
+type Result = variant {
+  ok : principal;
+  err : DeploymentError;
+};
+
+service : {
+  accept_cycles : () -> (nat);
+  cycles_balance : () -> (nat) query;
+  deploy_market : (MarketParams) -> (Result);
+  get_all_markets : () -> (vec DeployedMarket) query;
+  get_markets_by_owner : (principal) -> (vec DeployedMarket) query;
+} 
