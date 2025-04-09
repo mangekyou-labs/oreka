@@ -447,9 +447,22 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
         };
     }, []);
 
-    const handleAddressClick = (contractAddress: string, owner: string) => {
+    const handleAddressClick = (contractAddress: string, owner: string, contractData: ContractData) => {
         // Lưu địa chỉ contract vào localStorage
         localStorage.setItem('selectedContractAddress', contractAddress);
+        
+        // Lưu thêm dữ liệu contract để Customer.tsx có thể sử dụng ngay
+        localStorage.setItem('contractData', JSON.stringify({
+            address: contractAddress,
+            strikePrice: contractData.strikePrice,
+            maturityTime: contractData.maturityTime,
+            tradingPair: contractData.tradingPair,
+            phase: contractData.phase,
+            longAmount: contractData.longAmount,
+            shortAmount: contractData.shortAmount,
+            owner: contractData.owner,
+            timestamp: Date.now() // Thêm timestamp để biết dữ liệu được lưu khi nào
+        }));
         
         // Kiểm tra xem người dùng hiện tại có phải là owner không
         if (isConnected && walletAddress.toLowerCase() === owner.toLowerCase()) {
@@ -656,25 +669,6 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                             ))}
                         </HStack>
                     </Flex>
-                    
-                    {/* Tab description */}
-                    <Box p={4} bg="gray.50" borderRadius="md" mb={4}>
-                        {currentTab === 'All Markets' && (
-                            <Text color="gray.600">Showing all available markets</Text>
-                        )}
-                        {currentTab === 'Most recent' && (
-                            <Text color="gray.600">Showing markets sorted by creation date (newest first)</Text>
-                        )}
-                        {currentTab === 'Quests' && (
-                            <Text color="gray.600">Showing active markets in Trading or Bidding phase</Text>
-                        )}
-                        {currentTab === 'Results' && (
-                            <Text color="gray.600">Showing markets in Maturity or Expiry phase</Text>
-                        )}
-                        {['BTC/USD', 'ETH/USD', 'ICP/USD'].includes(currentTab) && (
-                            <Text color="gray.600">Showing {currentTab} markets only</Text>
-                        )}
-                    </Box>
                 </Box>
                 
                 {loading ? (
@@ -691,7 +685,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                                 borderRadius="lg" 
                                 overflow="hidden" 
                                 boxShadow="md"
-                                onClick={() => handleAddressClick(address, owner)}
+                                onClick={() => handleAddressClick(address, owner, { address, createDate, longAmount, shortAmount, strikePrice, phase, maturityTime, tradingPair, owner })}
                                 cursor="pointer"
                                 transition="transform 0.2s"
                                 _hover={{ transform: 'translateY(-4px)' }}

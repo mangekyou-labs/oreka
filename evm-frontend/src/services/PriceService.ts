@@ -99,48 +99,155 @@ export class PriceService {
     }
   }
 
-  public async fetchKlines(symbol: string = 'BTCUSDT', interval: string = '1m', limit: number = 100, timeRange: string = '1d'): Promise<any[]> {
+  public async fetchKlines(symbol: string, interval: string = '1m', limit: number = 100): Promise<any[]> {
     try {
-      // Adjust limit based on time range
-      let adjustedLimit = limit;
-      switch(timeRange) {
-        case '1d':
-          adjustedLimit = 24 * 60; // 1 day in minutes
-          break;
-        case '1w':
-          adjustedLimit = 7 * 24 * 12; // 1 week in 5-minute intervals
-          interval = '5m';
-          break;
-        case '1m':
-          adjustedLimit = 30 * 24 * 4; // 1 month in 15-minute intervals
-          interval = '15m';
-          break;
-        case 'all':
-          adjustedLimit = 200; // Maximum reasonable amount
-          interval = '1h';
-          break;
-      }
-      
-      // Cap at 1000 which is Binance's limit
-      adjustedLimit = Math.min(adjustedLimit, 1000);
+      // Luôn lấy dữ liệu cho 1 tuần
+      const endTime = Date.now();
+      const startTime = endTime - 7 * 24 * 60 * 60 * 1000; // 1 tuần trước
+      const adjustedInterval = '5m'; // Khoảng thời gian phù hợp cho 1 tuần
       
       // Format symbol cho Binance API
       const binanceSymbol = this.formatSymbolForBinance(symbol);
-      const response = await fetch(
-        `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${adjustedLimit}`
-      );
-      const data = await response.json();
-      return data.map((item: any[]) => ({
-        time: item[0],
-        open: parseFloat(item[1]),
-        high: parseFloat(item[2]),
-        low: parseFloat(item[3]),
-        close: parseFloat(item[4]),
-        volume: parseFloat(item[5])
-      }));
+      
+      console.log(`Fetching klines for ${binanceSymbol}, interval: ${adjustedInterval}`);
+      
+      // Thử sử dụng API Binance trước
+      try {
+        const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${adjustedInterval}&startTime=${startTime}&endTime=${endTime}&limit=1000`;
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        // Kiểm tra lỗi từ Binance
+        if (data.code && data.msg) {
+          console.error(`Binance API error: ${data.msg}`);
+          throw new Error(data.msg);
+        }
+        
+        if (!Array.isArray(data) || data.length === 0) {
+          console.warn(`No data from Binance for ${binanceSymbol}, trying fallback...`);
+          throw new Error("Empty data from Binance");
+        }
+        
+        console.log(`Received ${data.length} kline points from Binance`);
+        
+        // Xử lý dữ liệu từ Binance
+        let processedData = data.map((item: any[]) => ({
+          time: parseInt(item[0]),
+          open: parseFloat(item[1]),
+          high: parseFloat(item[2]),
+          low: parseFloat(item[3]),
+          close: parseFloat(item[4]),
+          volume: parseFloat(item[5])
+        }));
+        
+        // Đảm bảo dữ liệu được sắp xếp theo thời gian
+        processedData.sort((a, b) => a.time - b.time);
+        
+        // Lấy mẫu nếu có quá nhiều điểm
+        if (processedData.length > 300) {
+          processedData = this.sampleData(processedData, 300);
+        }
+        
+        return processedData;
+      } catch (binanceError) {
+        console.error("Error with Binance API, trying CoinGecko fallback:", binanceError);
+        
+        // Fallback sang CoinGecko nếu Binance không hoạt động
+        try {
+          // Chuyển đổi symbol từ BTCUSDT -> bitcoin, ETHUSDT -> ethereum
+          let coinId = 'bitcoin';
+          if (symbol.toLowerCase().includes('eth')) {
+            coinId = 'ethereum';
+          } else if (symbol.toLowerCase().includes('bnb')) {
+            coinId = 'binancecoin';
+          } else if (symbol.toLowerCase().includes('sol')) {
+            coinId = 'solana';
+          } else if (symbol.toLowerCase().includes('icp')) {
+            coinId = 'internet-computer';
+          } else if (symbol.toLowerCase().includes('dot')) {
+            coinId = 'polkadot';
+          }
+          
+          // Luôn lấy dữ liệu cho 7 ngày
+          const days = 7;
+          
+          const geckoUrl = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
+          const response = await fetch(geckoUrl);
+          const data = await response.json();
+          
+          if (!data.prices || data.prices.length === 0) {
+            console.error("No data from CoinGecko fallback");
+            return [];
+          }
+          
+          console.log(`Received ${data.prices.length} price points from CoinGecko`);
+          
+          // Xử lý dữ liệu từ CoinGecko
+          let processedData = data.prices.map((item: [number, number]) => ({
+            time: item[0],
+            close: item[1],
+            open: item[1],
+            high: item[1],
+            low: item[1],
+            volume: 0
+          }));
+          
+          // Đảm bảo dữ liệu được sắp xếp theo thời gian
+          processedData.sort((a, b) => a.time - b.time);
+          
+          // Lấy mẫu nếu có quá nhiều điểm
+          if (processedData.length > 300) {
+            processedData = this.sampleData(processedData, 300);
+          }
+          
+          return processedData;
+        } catch (geckoError) {
+          console.error("Both Binance and CoinGecko APIs failed:", geckoError);
+          return [];
+        }
+      }
     } catch (error) {
       console.error('Error fetching klines:', error);
-      throw error;
+      return [];
     }
+  }
+
+  // Thêm hàm helper để lấy mẫu dữ liệu
+  private sampleData(data: any[], targetCount: number): any[] {
+    if (data.length <= targetCount) return data;
+    
+    // Tìm giá cao nhất và thấp nhất
+    let highestPoint = data[0];
+    let lowestPoint = data[0];
+    
+    data.forEach(point => {
+      if (point.close > highestPoint.close) highestPoint = point;
+      if (point.close < lowestPoint.close) lowestPoint = point;
+    });
+    
+    const step = Math.floor(data.length / targetCount);
+    const sampledData = [];
+    
+    // Luôn giữ điểm đầu
+    sampledData.push(data[0]);
+    
+    for (let i = step; i < data.length - step; i += step) {
+      sampledData.push(data[i]);
+    }
+    
+    // Thêm điểm cuối
+    sampledData.push(data[data.length - 1]);
+    
+    // Thêm điểm cao nhất và thấp nhất nếu chưa có trong mẫu
+    const hasHighest = sampledData.some(p => p.time === highestPoint.time);
+    const hasLowest = sampledData.some(p => p.time === lowestPoint.time);
+    
+    if (!hasHighest) sampledData.push(highestPoint);
+    if (!hasLowest) sampledData.push(lowestPoint);
+    
+    // Sắp xếp lại theo thời gian
+    sampledData.sort((a, b) => a.time - b.time);
+    
+    return sampledData;
   }
 } 

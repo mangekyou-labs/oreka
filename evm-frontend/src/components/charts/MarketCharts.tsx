@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { Box, Tabs, TabList, TabPanels, Tab, TabPanel, HStack, Button, Text } from '@chakra-ui/react';
-import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine } from 'recharts';
+import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { Box, Tabs, TabList, TabPanels, Tab, TabPanel, HStack, Button, Text, ButtonGroup, Flex, Skeleton, Tooltip as ChakraTooltip, VStack } from '@chakra-ui/react';
+import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine, Area, AreaChart } from 'recharts';
 import { PriceService } from '../../services/PriceService';
+import { format, addDays, subDays } from 'date-fns';
+
 
 interface Position {
   long: number;
@@ -33,14 +35,12 @@ interface MarketChartsProps {
   maturityTime: number;
 }
 
-const MarketCharts: React.FC<MarketChartsProps> = ({ 
-  chartData, 
-  positionHistory, 
+const MarketCharts: React.FC<MarketChartsProps> = ({
+  chartData,
+  positionHistory,
   positions,
   strikePrice,
-  timeRange = '1w',
   chartType = 'price',
-  onTimeRangeChange,
   options = { showPrice: true, showPositions: true },
   chartSymbol,
   biddingStartTime,
@@ -48,286 +48,507 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
 }) => {
   const [chartDataState, setChartData] = useState<any[]>([]);
   const [currentTime, setCurrentTime] = useState<number>(Math.floor(Date.now() / 1000));
+  const [isLoadingChart, setIsLoadingChart] = useState<boolean>(true);
+  const [effectiveChartSymbol, setEffectiveChartSymbol] = useState<string>(chartSymbol || '');
+  const initialLoadRef = useRef<boolean>(true);
+  const priceServiceRef = useRef(PriceService.getInstance());
+  const [hoverData, setHoverData] = useState<any>(null);
+  const [enhancedPositionData, setEnhancedPositionData] = useState<PositionPoint[]>([]);
+  const positionHistoryRef = useRef<PositionPoint[]>([]);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const [diffString, setDiffString] = useState<string>('');
+  const [percentDiff, setPercentDiff] = useState<number>(0);
 
   useEffect(() => {
-    const fetchPriceHistory = async () => {
+    const cachedData = localStorage.getItem('contractData');
+    if (cachedData) {
       try {
-        if (!chartSymbol) {
-          console.warn("No chartSymbol provided to MarketCharts");
-          return;
+        const parsedData = JSON.parse(cachedData);
+        if (parsedData.tradingPair) {
+          const formattedSymbol = parsedData.tradingPair.replace('/', '-');
+          setEffectiveChartSymbol(formattedSymbol);
         }
-        
-        const priceService = PriceService.getInstance();
-        const klines = await priceService.fetchKlines(chartSymbol, '1m', 100, timeRange);
-        setChartData(klines);
       } catch (error) {
-        console.error("Error fetching price history:", error);
+        console.error("Error parsing cached contract data:", error);
       }
-    };
+    }
 
-    fetchPriceHistory();
-    const interval = setInterval(fetchPriceHistory, 60000);
-    return () => clearInterval(interval);
-  }, [chartSymbol, timeRange]);
-
-  // Cập nhật thời gian hiện tại mỗi giây
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(Math.floor(Date.now() / 1000));
-    }, 1000);
-    return () => clearInterval(interval);
+    setTimeout(() => {
+      initialLoadRef.current = false;
+      setIsLoadingChart(false);
+    }, 500);
   }, []);
 
-  // Filter data based on time range
-  const getFilteredData = (data: any[], range: string) => {
-    if (!data || data.length === 0) return [];
-    
+  useEffect(() => {
+    if (chartSymbol) {
+      setEffectiveChartSymbol(chartSymbol);
+    }
+  }, [chartSymbol]);
+
+  useEffect(() => {
+    const updateTime = () => {
+      setCurrentTime(Math.floor(Date.now() / 1000));
+      animationFrameRef.current = requestAnimationFrame(updateTime);
+    };
+
+    animationFrameRef.current = requestAnimationFrame(updateTime);
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!positionHistory || !biddingStartTime || !maturityTime) {
+      return;
+    }
+
+    const throttledUpdate = () => {
+      if (positionHistory.length > 0) {
+        positionHistoryRef.current = positionHistory.filter(point =>
+          point.timestamp <= currentTime
+        );
+      }
+
+      const enhancedData = generateEnhancedPositionData(
+        positionHistoryRef.current,
+        biddingStartTime,
+        maturityTime,
+        currentTime,
+        positions
+      );
+
+      setEnhancedPositionData(enhancedData);
+    };
+
+    throttledUpdate();
+
+    intervalRef.current = setInterval(throttledUpdate, 500);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [positionHistory, biddingStartTime, maturityTime, currentTime, positions]);
+
+  const optimizedPriceData = useMemo(() => {
+    if (!chartData || chartData.length === 0) return [];
+
     const now = Date.now();
-    let filterTime: number;
-    
-    switch(range) {
-      case '1d':
-        filterTime = now - 24 * 60 * 60 * 1000; // 1 day
-        break;
-      case '1w':
-        filterTime = now - 7 * 24 * 60 * 60 * 1000; // 1 week
-        break;
-      case '1m':
-        filterTime = now - 30 * 24 * 60 * 60 * 1000; // 1 month
-        break;
-      case 'all':
-      default:
-        return data;
-    }
-    
-    return data.filter(item => item.time > filterTime || item.timestamp > filterTime / 1000);
-  };
+    const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
 
-  const filteredChartData = getFilteredData(chartDataState, timeRange);
-  const filteredPositionHistory = getFilteredData(positionHistory, timeRange);
+    let filteredData = chartData.filter(item => item.time >= oneWeekAgo);
 
-  // Cải thiện hàm tạo mốc thời gian cố định
-  const getFixedPositionTicks = () => {
-    if (!biddingStartTime || !maturityTime) return [];
-    
+    filteredData.sort((a, b) => a.time - b.time);
+
+    return filteredData;
+  }, [chartData]);
+
+  const optimizedPositionData = useMemo(() => {
+    if (!positionHistory || positionHistory.length === 0) return [];
+
+    let filteredData = [...positionHistory];
+
+    filteredData.sort((a, b) => a.timestamp - b.timestamp);
+
+    return filteredData;
+  }, [positionHistory]);
+
+  const getPriceChartTicks = () => {
+    const today = new Date();
     const ticks = [];
-    const timeRange = maturityTime - biddingStartTime;
-    const interval = timeRange / 8;
-    
-    for (let i = 0; i <= 8; i++) {
-      ticks.push(biddingStartTime + Math.floor(interval * i));
+
+    for (let i = 6; i >= 0; i--) {
+      const date = subDays(today, i);
+      ticks.push(date.getTime());
     }
-    
+
     return ticks;
   };
 
-  // Cải thiện hàm định dạng thời gian
-  const formatXAxisTick = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    return `${date.toLocaleString('default', { month: 'short' })} ${date.getDate()}`;
+  const getPositionChartTicks = () => {
+    if (!biddingStartTime || !maturityTime) return [];
+
+    const duration = maturityTime - biddingStartTime;
+    const interval = Math.max(Math.floor(duration / 5), 1);
+
+    const ticks = [];
+    ticks.push(biddingStartTime);
+
+    let current = biddingStartTime + interval;
+    while (current < maturityTime) {
+      ticks.push(current);
+      current += interval;
+    }
+
+    ticks.push(maturityTime);
+    return ticks;
   };
 
-  // Custom tooltip component
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      const timestamp = new Date(label * 1000);
-      const longValue = payload.find((p: any) => p.dataKey === 'longPercentage')?.value;
-      const shortValue = payload.find((p: any) => p.dataKey === 'shortPercentage')?.value;
-      
+  const formatPriceXAxisTick = (timestamp: number) => {
+    return format(new Date(timestamp), 'dd/MM');
+  };
+
+  const formatPositionXAxisTick = (timestamp: number) => {
+    const date = new Date(timestamp * 1000);
+    return format(date, 'HH:mm dd/MM');
+  };
+
+  const renderPositionDot = useCallback(({ cx, cy, payload, dataKey }: any) => {
+    if (payload.isCurrentPoint) {
+      const color = dataKey === 'longPercentage' ? '#00D7B5' : '#FF6384';
+      const size = 6;
+
       return (
-        <div style={{ 
-          backgroundColor: 'rgba(0, 0, 0, 0.8)', 
-          padding: '10px',
-          border: '1px solid #FEDF56',
-          borderRadius: '4px',
-          color: '#FEDF56'
-        }}>
-          <p>{timestamp.toLocaleString()}</p>
-          <p style={{ color: '#00D7B5' }}>LONG: {longValue ? `${longValue.toFixed(2)}%` : '-'}</p>
-          <p style={{ color: '#FF6384' }}>SHORT: {shortValue ? `${shortValue.toFixed(2)}%` : '-'}</p>
-        </div>
+        <svg x={cx - size} y={cy - size} width={size * 2} height={size * 2}>
+          <circle cx={size} cy={size} r={size} fill={color} />
+          <circle cx={size} cy={size} r={size - 1} fill={color} stroke="#fff" strokeWidth={1} />
+        </svg>
       );
     }
+
     return null;
+  }, []);
+
+  const PositionChartTooltip = useCallback(({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      const time = format(new Date(label * 1000), 'HH:mm:ss dd/MM/yyyy');
+      const longPercentage = payload[0].value;
+      const shortPercentage = payload[1].value;
+
+      return (
+        <Box bg="rgba(0,0,0,0.8)" p={2} borderRadius="md" boxShadow="md">
+          <Text color="gray.300" fontSize="sm">{time}</Text>
+          <HStack spacing={4} mt={1}>
+            <HStack>
+              <Box w={2} h={2} borderRadius="full" bg="#00D7B5" />
+              <Text color="#00D7B5" fontWeight="bold">{`LONG: ${longPercentage}%`}</Text>
+            </HStack>
+            <HStack>
+              <Box w={2} h={2} borderRadius="full" bg="#FF6384" />
+              <Text color="#FF6384" fontWeight="bold">{`SHORT: ${shortPercentage}%`}</Text>
+            </HStack>
+          </HStack>
+        </Box>
+      );
+    }
+
+    return null;
+  }, []);
+
+  const handleMouseMove = (e: any) => {
+    if (e && e.activePayload && e.activePayload.length) {
+      setHoverData(e.activePayload[0].payload);
+    }
   };
 
-  if (chartType === 'price') {
+  const handleMouseLeave = () => {
+    setHoverData(null);
+  };
+
+  const renderHoverInfo = () => {
+    if (!hoverData) return null;
+
+    const date = new Date(hoverData.time);
+
+    const percentDiff = strikePrice > 0
+      ? ((hoverData.close - strikePrice) / strikePrice * 100).toFixed(2)
+      : 0;
+
+    const diffString = strikePrice > 0
+      ? `(${hoverData.close > strikePrice ? '+' : ''}${percentDiff}%)`
+      : '';
+
+    // return (
+    //   <VStack align="flex-start">
+    //     <Text color="white" fontSize="lg">
+    //       {/* {format(date, 'dd MMM yyyy HH:mm')} - Price: ${hoverData.close.toFixed(2)} {diffString} */}
+    //       ${hoverData.close.toFixed(2)}
+
+    //     </Text>
+    //     <Text color="white" fontSize="sm">
+    //       {diffString}
+    //     </Text>
+    //   </VStack>
+    // );
+  };
+
+  const generateEnhancedPositionData = useCallback((
+    originalData: PositionPoint[],
+    biddingStart: number,
+    maturityEnd: number,
+    current: number,
+    currentPositions: Position
+  ): PositionPoint[] => {
+    if (current < biddingStart) {
+      return [{
+        timestamp: biddingStart,
+        longPercentage: 50,
+        shortPercentage: 50,
+        isMainPoint: false
+      }];
+    }
+
+    let result: PositionPoint[] = [];
+
+    result.push({
+      timestamp: biddingStart,
+      longPercentage: 50,
+      shortPercentage: 50,
+      isMainPoint: false
+    });
+
+    if (originalData && originalData.length > 0) {
+      const filteredPoints = originalData
+        .filter(point => Math.abs(point.timestamp - biddingStart) > 10)
+        .map(point => ({
+          ...point,
+          isMainPoint: false,
+          isCurrentPoint: false
+        }));
+
+      result = [...result, ...filteredPoints];
+    }
+
+    let currentLongPercentage = 50;
+    let currentShortPercentage = 50;
+
+    if (currentPositions && (currentPositions.long > 0 || currentPositions.short > 0)) {
+      const total = currentPositions.long + currentPositions.short;
+      currentLongPercentage = total > 0 ? Math.round((currentPositions.long / total) * 100) : 50;
+      currentShortPercentage = total > 0 ? Math.round((currentPositions.short / total) * 100) : 50;
+    }
+
+    if (current > biddingStart && current <= maturityEnd) {
+      result.push({
+        timestamp: current,
+        longPercentage: currentLongPercentage,
+        shortPercentage: currentShortPercentage,
+        isMainPoint: true,
+        isCurrentPoint: true
+      });
+    }
+
+    result.sort((a, b) => a.timestamp - b.timestamp);
+
+    return result;
+  }, []);
+
+  const renderPositionChart = () => {
+    let longPercentage = 50;
+    let shortPercentage = 50;
+
+    if (positions && (positions.long > 0 || positions.short > 0)) {
+      const total = positions.long + positions.short;
+      longPercentage = total > 0 ? Math.round((positions.long / total) * 100) : 50;
+      shortPercentage = total > 0 ? Math.round((positions.short / total) * 100) : 50;
+    }
+
     return (
-      <Box h="520px" border="1px solid #2D3748" borderRadius="xl" p={4}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={filteredChartData}>
-            <CartesianGrid strokeDasharray="2 2" stroke="#333" />
-            <XAxis 
-              dataKey="time" 
-              tickFormatter={(time) => new Date(time).toLocaleTimeString()}
-              stroke="#F0FFFF"
-              tick={{ fontSize: 12 }}
-              ticks={getFixedPositionTicks()} // Chỉ hiển thị 8 cột mốc thời gian
-            />
-            <YAxis domain={['auto', 'auto']} stroke="#F0FFFF" />
-            {strikePrice && (
-              <ReferenceLine 
-                y={strikePrice} 
-                stroke="#FEDF56" 
-                strokeDasharray="2 2" 
-                label={{ 
-                  value: `Strike: ${strikePrice}`, 
-                  position: 'right',
-                  fill: '#FEDF56'
-                }} 
+      <Box p={4} bg="##0A0B0E" borderRadius="md" boxShadow="lg">
+        <Flex justify="space-between" mb={4}>
+          <Text fontSize="xl" fontWeight="bold" color="white">Position Chart</Text>
+          <HStack spacing={6}>
+            <HStack spacing={1}>
+              <Box w={3} h={3} borderRadius="full" bg="#00D7B5" />
+              <Text color="#00D7B5" fontWeight="bold">LONG: {longPercentage}%</Text>
+            </HStack>
+            <HStack spacing={1}>
+              <Box w={3} h={3} borderRadius="full" bg="#FF6384" />
+              <Text color="#FF6384" fontWeight="bold">SHORT: {shortPercentage}%</Text>
+            </HStack>
+          </HStack>
+        </Flex>
+
+        {enhancedPositionData.length === 0 ? (
+          <Flex height="300px" justify="center" align="center" color="gray.500">
+            <Text>No position data available</Text>
+          </Flex>
+        ) : (
+          <ResponsiveContainer width="100%" height={500}>
+            <LineChart
+              data={enhancedPositionData}
+              margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+
+              <XAxis
+                dataKey="timestamp"
+                tickFormatter={formatPositionXAxisTick}
+                ticks={getPositionChartTicks()}
+                domain={[biddingStartTime, maturityTime]}
+                type="number"
+                tick={{ fill: '#999', fontSize: 12 }}
+                axisLine={{ stroke: '#333' }}
               />
-            )}
-            <Tooltip
-              contentStyle={{ 
-                backgroundColor: '#000', 
-                border: '1px solid #FEDF56',
-                color: '#FF7F50'
-              }}
-              formatter={(value: number) => [`${value.toFixed(2)} USD`, 'Price']}
-              labelFormatter={(time) => new Date(time).toLocaleString()}
-            />
-            <Line 
-              type="monotone" 
-              dataKey="close" 
-              stroke="#FF7F50" 
-              dot={false}
-              strokeWidth={2}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+
+              <YAxis
+                domain={[0, 100]}
+                tickCount={5}
+                tickFormatter={(value) => `${value}%`}
+                tick={{ fill: '#999', fontSize: 12 }}
+                axisLine={{ stroke: '#333' }}
+              />
+
+              <Tooltip content={<PositionChartTooltip />} />
+
+              <Line
+                type="monotone"
+                dataKey="longPercentage"
+                stroke="#00D7B5"
+                strokeWidth={2}
+                dot={renderPositionDot}
+                activeDot={{ r: 8, stroke: '#00D7B5', strokeWidth: 2, fill: '#00D7B5' }}
+                isAnimationActive={false}
+                name="LONG"
+              />
+
+              <Line
+                type="monotone"
+                dataKey="shortPercentage"
+                stroke="#FF6384"
+                strokeWidth={2}
+                dot={renderPositionDot}
+                activeDot={{ r: 8, stroke: '#FF6384', strokeWidth: 2, fill: '#FF6384' }}
+                isAnimationActive={false}
+                name="SHORT"
+              />
+              
+
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </Box>
+    );
+  }
+
+  useEffect(() => {
+    if (optimizedPriceData.length > 1) {
+      const currentPrice = optimizedPriceData[optimizedPriceData.length - 1].close;
+      const previousPrice = optimizedPriceData[optimizedPriceData.length - 2].close;
+      const difference = Math.abs(hoverData?.close - strikePrice);
+      setDiffString(`${difference.toFixed(2)} USD`);
+      setPercentDiff(difference / strikePrice * 100);
+    }
+  }, [hoverData]);
+
+  useEffect(() => {
+    if (optimizedPriceData.length > 0 && strikePrice > 0) {
+        const currentPrice = optimizedPriceData[optimizedPriceData.length - 1].close;
+        const difference = currentPrice - strikePrice;
+        const percentageDifference = (difference / strikePrice) * 100;
+        setPercentDiff(percentageDifference);
+    }
+  }, [optimizedPriceData, strikePrice]);
+
+  if (chartType === 'price') {
+    const lineColor = strikePrice > 0 && optimizedPriceData.length > 0 && optimizedPriceData[optimizedPriceData.length - 1]?.close > strikePrice ? "#FF8C00" : "#FF6384";
+
+    return (
+      <Box p={4} bg="#0A0B0E" borderRadius="md" boxShadow="lg">
+        <Flex justify="space-between" align="center" mb={4} direction="column">
+          <Flex w="100%" justify="space-between" align="center" mb={2}>
+            <VStack align="flex-start" fontSize="xl">
+              <Text color="white" fontSize="4xl">
+                ${hoverData?.close ? hoverData.close.toFixed(2) : '0.00'}
+              </Text>
+              <Text color="white" fontSize="lg">
+                {diffString} ({percentDiff.toFixed(2)}%)
+              </Text>
+            </VStack>
+
+            <Flex justify="space-between" align="center">
+              {!isLoadingChart && optimizedPriceData.length > 0 ? (
+                <Text fontSize="2xl" fontWeight="bold" color={lineColor}>
+                  ${optimizedPriceData[optimizedPriceData.length - 1]?.close.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })}
+                </Text>
+              ) : (
+                <Skeleton height="32px" width="120px" />
+              )}
+            </Flex>
+          </Flex>
+
+          <Box w="100%" h="24px">
+            {renderHoverInfo()}
+          </Box>
+        </Flex>
+
+        {isLoadingChart && initialLoadRef.current ? (
+          <Flex
+            justify="center"
+            align="center"
+            height="400px"
+            width="100%"
+            direction="column"
+          >
+            <Skeleton height="500px" width="100%" borderRadius="md" />
+          </Flex>
+        ) : (
+          <ResponsiveContainer width="100%" height={409}>
+            <LineChart
+              data={optimizedPriceData}
+              margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+              onMouseMove={handleMouseMove}
+              onMouseLeave={handleMouseLeave}
+            >
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.1)" />
+
+              <XAxis
+                dataKey="time"
+                type="number"
+                domain={['dataMin', 'dataMax']}
+                ticks={getPriceChartTicks()}
+                tickFormatter={formatPriceXAxisTick}
+                stroke="#666"
+                tick={{ fill: 'white', fontSize: 15 }}
+                axisLine={{ stroke: '#333' }}
+              />
+
+              <YAxis
+                domain={['auto', 'auto']}
+                stroke="#666"
+                tick={{ fill: 'white', fontSize: 15 }}
+                axisLine={{ stroke: '#333' }}
+              />
+
+              <Line
+                type="monotone"
+                dataKey="close"
+                stroke={lineColor}
+                dot={false}
+                strokeWidth={2}
+                isAnimationActive={false}
+                activeDot={{ r: 6, stroke: lineColor, strokeWidth: 2, fill: lineColor }}
+              />
+
+              {strikePrice > 0 && (
+                <ReferenceLine
+                  y={strikePrice}
+                  stroke="#FEDF56"
+                  strokeDasharray="3 3"
+                  label={{
+                    value: `${strikePrice}`,
+                    position: 'left',
+                    fill: '#FEDF56',
+                    fontSize: 12
+                  }}
+                />
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </Box>
     );
   } else {
-    // Tạo dữ liệu hiện tại để hiển thị theo thời gian thực
-    const createCurrentTimeData = () => {
-      // Đảm bảo có dữ liệu đầu tiên tại biddingStartTime
-      const initialData: PositionPoint[] = [{
-        timestamp: biddingStartTime,
-        longPercentage: 50,
-        shortPercentage: 50,
-        isMainPoint: true
-      }];
-
-      // Lọc dữ liệu position history đến thời điểm hiện tại
-      let filteredData = positionHistory
-        .filter(p => 
-          p.longPercentage !== null && 
-          p.shortPercentage !== null && 
-          p.timestamp <= currentTime
-        )
-        .sort((a, b) => a.timestamp - b.timestamp);
-
-      // Nếu không có dữ liệu nào, chỉ sử dụng điểm ban đầu
-      if (filteredData.length === 0) {
-        return initialData;
-      }
-
-      // Nếu không có điểm đầu tiên tại biddingStartTime, thêm vào
-      if (filteredData[0].timestamp > biddingStartTime) {
-        filteredData = [...initialData, ...filteredData];
-      }
-
-      // Thêm điểm hiện tại nếu chưa có
-      const lastPoint = filteredData[filteredData.length - 1];
-      if (currentTime > lastPoint.timestamp && currentTime < maturityTime) {
-        const total = positions.long + positions.short;
-        const longPercentage = total > 0 ? (positions.long / total) * 100 : 50;
-        const shortPercentage = total > 0 ? (positions.short / total) * 100 : 50;
-        
-        filteredData.push({
-          timestamp: currentTime,
-          longPercentage,
-          shortPercentage,
-          isMainPoint: true,
-          isCurrentPoint: true
-        });
-      }
-
-      return filteredData;
-    };
-
-    // Lấy dữ liệu hiện tại cho biểu đồ
-    const currentPositionData = createCurrentTimeData();
-    
-    // Lấy các mốc thời gian cố định
-    const fixedTicks = getFixedPositionTicks();
-    
-    // Render custom dots cho line
-    const renderDot = (props: any) => {
-      const { cx, cy, payload } = props;
-      const dotColor = payload.dataKey === 'longPercentage' ? '#00D7B5' : '#FF6384'; // Màu tương ứng với đường
-      if (payload.isCurrentPoint) {
-        return (
-          <circle cx={cx} cy={cy} r={8} stroke={dotColor} strokeWidth={2} fill={dotColor} />
-        );
-      }
-      return null;
-    };
-
-    return (
-      <Box h="520px" border="1px solid #2D3748" borderRadius="xl" p={4} width="100%">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={currentPositionData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-            <XAxis 
-              dataKey="timestamp"
-              type="number"
-              domain={[biddingStartTime, maturityTime]}
-              ticks={fixedTicks}
-              scale="time"
-              tickFormatter={formatXAxisTick}
-              stroke="rgba(254, 223, 86, 0.7)"
-              tick={{ fill: 'rgba(254, 223, 86, 0.7)', fontSize: 12 }}
-              axisLine={{ stroke: '#333' }}
-            />
-            <YAxis 
-              domain={[0, 100]}
-              tickFormatter={(value) => `${value.toFixed(1)}%`}
-              stroke="rgba(254, 223, 86, 0.7)"
-              tick={{ fill: 'rgba(254, 223, 86, 0.7)', fontSize: 12 }}
-              axisLine={{ stroke: '#333' }}
-            />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend 
-              verticalAlign="top" 
-              height={36}
-              formatter={(value, entry) => {
-                const totalEth = value === "LONG" ? positions.long : positions.short;
-                return `${value} (${totalEth.toFixed(4)} ETH)`;
-              }}
-              wrapperStyle={{
-                color: "#FEDF56",
-                opacity: 0.8,
-                fontSize: '12px'
-              }}
-            />
-            <ReferenceLine y={50} stroke="#FEDF56" strokeDasharray="3 3" />
-            <Line 
-              type="monotone"
-              dataKey="longPercentage"
-              stroke="#00D7B5"
-              name="LONG"
-              strokeWidth={2}
-              dot={renderDot}
-              activeDot={{ r: 6, stroke: '#00D7B5', strokeWidth: 2, fill: '#00D7B5' }}
-              connectNulls={true}
-              isAnimationActive={false}
-            />
-            <Line 
-              type="monotone"
-              dataKey="shortPercentage"
-              stroke="#FF6384"
-              name="SHORT"
-              strokeWidth={2}
-              dot={renderDot}
-              activeDot={{ r: 6, stroke: '#FF6384', strokeWidth: 2, fill: '#FF6384' }}
-              connectNulls={true}
-              isAnimationActive={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </Box>
-    );
+    return renderPositionChart();
   }
 };
 

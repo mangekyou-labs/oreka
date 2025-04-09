@@ -3,7 +3,7 @@ import { useCallback } from 'react'; // Thêm import useCallback
 import {
   Flex, Box, Text, Button, VStack, useToast, Input, Heading, Image,
   Select, HStack, Icon, ScaleFade, Table, Thead, Tbody, Tab, Tr, Th, Td, Spacer, Tabs, TabList, TabPanels, TabPanel, Circle, FormControl, FormLabel,
-  Link
+  Link, Skeleton
 } from '@chakra-ui/react';
 import { FaEthereum, FaWallet, FaTrophy, FaChevronLeft, FaShare, FaArrowUp, FaArrowDown, FaExternalLinkAlt, FaBalanceScale, FaCoins, FaChevronRight, FaCalendarAlt, FaRegClock, } from 'react-icons/fa';
 import { PiChartLineUpLight } from "react-icons/pi";
@@ -106,6 +106,12 @@ const toETTime = (utcTimestamp) => {
   return toZonedTime(new Date(utcTimestamp * 1000), 'America/New_York');
 };
 
+// Thêm hàm chuyển đổi trading pair sang chart symbol
+const getChartSymbolFromTradingPair = (tradingPair: string): string => {
+  if (!tradingPair) return '';
+  return tradingPair.replace('/', '-');
+};
+
 function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const { isConnected, walletAddress, balance, connectWallet, refreshBalance } = useAuth();
   const [selectedSide, setSelectedSide] = useState<Side | null>(null);
@@ -132,7 +138,9 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const [biddingStartTime, setBiddingStartTime] = useState<number>(0);
   const [deployTime, setDeployTime] = useState<number>(0);
   const [positionHistory, setPositionHistory] = useState<PositionPoint[]>([]);
-  const positionHistoryKey = `position_history_${contractAddress}`;
+  const positionHistoryKey = useMemo(() => {
+    return `positionHistory_${contractAddress}`;
+  }, [contractAddress]);
   const [biddingStartTimestamp, setBiddingStartTimestamp] = useState<number>(0);
   const [maturityTime, setMaturityTime] = useState<number>(0);
   const [oracleDetails, setOracleDetails] = useState<any>(null);
@@ -146,9 +154,13 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const [positionTimeRange, setPositionTimeRange] = useState<string>('all');
   const [isResolvingMarket, setIsResolvingMarket] = useState<boolean>(false);
   const [isExpiringMarket, setIsExpiringMarket] = useState<boolean>(false);
-  const [potentialProfit, setPotentialProfit] = useState<{ b: number; c: number }>({ b: 0, c: 0 });
+  const [potentialProfit, setPotentialProfit] = useState<string>("0.0000");
+  const [profitPercentage, setProfitPercentage] = useState<number>(0);
   const [feePercentage, setFeePercentage] = useState<string>('0');
   const router = useRouter();
+  const [isLoadingContractData, setIsLoadingContractData] = useState<boolean>(true);
+  const [isLoadingPositionHistory, setIsLoadingPositionHistory] = useState(true);
+  const [enhancedPositionData, setEnhancedPositionData] = useState<PositionPoint[]>([]);
 
   // Thêm mapping từ contract address sang symbol Binance
   const coinSymbols: CoinSymbol = {
@@ -507,8 +519,109 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   }, [contract, currentPhase, positions]);
 
 
-  // Sửa lại handleBid
-  const handleBid = async (side: Side) => {
+  // Hàm tính potential profit - sửa để xử lý bidAmount rỗng tốt hơn
+  const calculatePotentialProfit = useCallback((side: Side, amount: string) => {
+    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0 || !positions) {
+      setPotentialProfit("0.0000");
+      setProfitPercentage(0);
+      return;
+    }
+
+    const bidAmountInEth = parseFloat(amount);
+    let potentialReturn = 0;
+    let profitPercentage = 0;
+
+    // Tổng giá trị đặt cược hiện tại
+    const longAmount = positions.long;
+    const shortAmount = positions.short;
+    const totalBids = longAmount + shortAmount;
+
+    // Áp dụng phí
+    const feeAmount = bidAmountInEth * (Number(feePercentage) / 1000);
+    const bidAmountAfterFee = bidAmountInEth - feeAmount;
+
+    if (side === Side.Long) {
+      // Nếu chọn LONG
+      const newLongAmount = longAmount + bidAmountInEth;
+
+      if (shortAmount === 0) {
+        // Nếu chưa ai đặt SHORT, chỉ lấy lại tiền đặt cược sau khi trừ phí
+        potentialReturn = bidAmountAfterFee;
+        profitPercentage = -1 * (Number(feePercentage) / 10); // Chỉ mất phí
+      } else {
+        // Tính toán tỷ lệ lợi nhuận dựa trên tỷ lệ LONG/SHORT
+        const totalPool = totalBids + bidAmountInEth;
+        const poolAfterFee = totalPool - feeAmount;
+
+        // Tỷ lệ thắng dựa vào số tiền đặt SHORT
+        const winRatio = shortAmount / newLongAmount;
+        potentialReturn = bidAmountInEth + (bidAmountAfterFee * winRatio);
+        profitPercentage = ((potentialReturn - bidAmountInEth) / bidAmountInEth) * 100;
+      }
+    } else {
+      // Nếu chọn SHORT
+      const newShortAmount = shortAmount + bidAmountInEth;
+
+      if (longAmount === 0) {
+        // Nếu chưa ai đặt LONG, chỉ lấy lại tiền đặt cược sau khi trừ phí
+        potentialReturn = bidAmountAfterFee;
+        profitPercentage = -1 * (Number(feePercentage) / 10); // Chỉ mất phí
+      } else {
+        // Tính toán tỷ lệ lợi nhuận dựa trên tỷ lệ LONG/SHORT
+        const totalPool = totalBids + bidAmountInEth;
+        const poolAfterFee = totalPool - feeAmount;
+
+        // Tỷ lệ thắng dựa vào số tiền đặt LONG
+        const winRatio = longAmount / newShortAmount;
+        potentialReturn = bidAmountInEth + (bidAmountAfterFee * winRatio);
+        profitPercentage = ((potentialReturn - bidAmountInEth) / bidAmountInEth) * 100;
+      }
+    }
+
+    setPotentialProfit(potentialReturn.toFixed(4));
+    setProfitPercentage(profitPercentage);
+  }, [positions, feePercentage]);
+
+  // Hàm xử lý khi chọn side (UP/DOWN)
+  const handleSelectSide = (side: Side) => {
+    setSelectedSide(side);
+    calculatePotentialProfit(side, bidAmount);
+  };
+
+  // Xử lý khi thay đổi bid amount
+  useEffect(() => {
+    if (selectedSide !== null && bidAmount) {
+      calculatePotentialProfit(selectedSide, bidAmount);
+    }
+  }, [bidAmount, selectedSide, calculatePotentialProfit]);
+
+  // Sửa lại hàm handleBid để sử dụng selectedSide
+  const handleBid = async (side?: Side) => {
+    const bidSide = side !== undefined ? side : selectedSide;
+
+    if (bidSide === null) {
+      toast({
+        title: "Error",
+        description: "Please select UP or DOWN first",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    // Kiểm tra bidAmount
+    if (!bidAmount || isNaN(parseFloat(bidAmount)) || parseFloat(bidAmount) <= 0) {
+      toast({
+        title: "Error",
+        description: "Please enter a valid amount",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
     if (!contract || !bidAmount || parseFloat(bidAmount) <= 0) return;
 
     try {
@@ -519,7 +632,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       const bidAmountWei = ethers.utils.parseEther(bidAmount);
 
       // Gọi hàm bid của contract với signer
-      const tx = await contractWithSigner.bid(side, {
+      const tx = await contractWithSigner.bid(bidSide, {
         value: bidAmountWei,
         gasLimit: 500000
       });
@@ -537,6 +650,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       // Reset bid amount và refresh data
       await refreshBalance();
       await fetchMarketDetails();
+      resetBettingForm();
       setBidAmount("");
     } catch (error: any) {
       console.error("Error placing bid:", error);
@@ -549,18 +663,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       });
     }
   };
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (contract && currentPhase !== Phase.Bidding) { // Ngăn không cho cập nhật trong phase Bidding
-        fetchMarketDetails();
-      }
-    }, 5000); // Gọi hàm mỗi 5 giây
-    return () => clearInterval(interval); // Clear interval khi component bị unmount
-  }, [contract, currentPhase]);
-
-
-
 
   const canClaimReward = useCallback(async () => {
     if (!contract || currentPhase !== Phase.Expiry) return;
@@ -950,17 +1052,17 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   };
 
   // Sửa lại hàm fetchPositionHistory
-  const fetchPositionHistory = async () => {
+  const fetchPositionHistory = useCallback(async () => {
     if (!contract) return [];
-    try {
-      const deployTime = await contract.deployTime();
-      if (!deployTime) throw new Error("Deploy time is null");
 
+    setIsLoadingPositionHistory(true);
+
+    try {
       // Lấy block hiện tại
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const currentBlock = await provider.getBlockNumber();
 
-      // Lấy tất cả events từ block 0 đến block hiện tại
+      // Lấy tất cả PositionUpdated events từ block 0 đến block hiện tại
       const events = await contract.queryFilter(
         contract.filters.PositionUpdated(),
         0,
@@ -972,119 +1074,124 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         a.args.timestamp.toNumber() - b.args.timestamp.toNumber()
       );
 
-      return sortedEvents.map(event => ({
-        timestamp: event.args.timestamp.toNumber(),
-        longAmount: event.args.longAmount,
-        shortAmount: event.args.shortAmount
-      }));
+      // Chuyển đổi thành định dạng cho biểu đồ
+      const positionPoints = sortedEvents.map(event => {
+        const timestamp = event.args.timestamp.toNumber();
+        const longAmount = parseFloat(ethers.utils.formatEther(event.args.longAmount));
+        const shortAmount = parseFloat(ethers.utils.formatEther(event.args.shortAmount));
+        const total = longAmount + shortAmount;
+
+        let longPercentage = 50;
+        let shortPercentage = 50;
+
+        if (total > 0) {
+          longPercentage = (longAmount / total) * 100;
+          shortPercentage = (shortAmount / total) * 100;
+        }
+
+        return {
+          timestamp,
+          longPercentage,
+          shortPercentage,
+          isMainPoint: true,
+          isFixed: false
+        };
+      });
+
+      // Thêm điểm ban đầu nếu cần
+      if (positionPoints.length === 0 && biddingStartTime) {
+        positionPoints.push({
+          timestamp: biddingStartTime,
+          longPercentage: 50,
+          shortPercentage: 50,
+          isMainPoint: true,
+          isFixed: true
+        });
+      }
+
+      setIsLoadingPositionHistory(false);
+      return positionPoints;
     } catch (error) {
       console.error("Error fetching position history:", error);
+      setIsLoadingPositionHistory(false);
       return [];
     }
-  };
+  }, [contract, biddingStartTime]);
 
-  // Thêm hàm helper để tạo các điểm phụ giữa các mốc chính
-  const createIntermediatePoints = (startTime: number, endTime: number) => {
-    const points: PositionPoint[] = [];
-    const interval = 1; // 1 giây cho mỗi điểm
-    const totalPoints = Math.floor((endTime - startTime) / interval);
-
-    for (let i = 0; i <= totalPoints; i++) {
-      const timestamp = startTime + (i * interval);
-      points.push({
-        timestamp,
-        longPercentage: null,
-        shortPercentage: null,
-        isMainPoint: false,
-        isFixed: false
+  // Cập nhật useEffect để lấy position history từ on-chain
+  useEffect(() => {
+    if (contract && currentPhase >= Phase.Bidding) {
+      fetchPositionHistory().then(history => {
+        if (history.length > 0) {
+          setPositionHistory(history);
+        } else if (biddingStartTime) {
+          // Fallback nếu không có dữ liệu
+          setPositionHistory(createInitialPositionHistory(biddingStartTime));
+        }
       });
     }
-    return points;
-  };
+  }, [contract, currentPhase, biddingStartTime, fetchPositionHistory]);
 
-  // Thêm helper function để tạo mẫu dữ liệu ban đầu cho positionHistory
-  const createInitialPositionHistory = (startTime: number) => {
-    const nowTimestamp = Math.floor(Date.now() / 1000);
-    const oneDay = 24 * 60 * 60;
-    
-    // Tạo dữ liệu cho 7 ngày trước đó nếu có
-    const history = [];
-    
-    // Thêm điểm ban đầu (50/50)
-    history.push({
-      timestamp: startTime,
-      longPercentage: 50,
-      shortPercentage: 50,
-      isMainPoint: true,
-      isFixed: true
-    });
-    
-    return history;
-  };
-
-  // Sửa phần xử lý positionHistory trong useEffect
+  // Thêm event listener cho PositionUpdated events realtime
   useEffect(() => {
-    if (contractAddress) {
-      // Load position history từ localStorage hoặc khởi tạo mới
-      const savedHistory = localStorage.getItem(positionHistoryKey);
-      if (savedHistory) {
-        setPositionHistory(JSON.parse(savedHistory));
-      } else if (biddingStartTime) {
-        // Khởi tạo history mới với biddingStartTime
-        setPositionHistory(createInitialPositionHistory(biddingStartTime));
+    if (!contract || currentPhase < Phase.Bidding) return;
+
+    const handlePositionUpdate = (timestamp, longAmount, shortAmount) => {
+      const ts = timestamp.toNumber();
+      const longAmt = parseFloat(ethers.utils.formatEther(longAmount));
+      const shortAmt = parseFloat(ethers.utils.formatEther(shortAmount));
+      const total = longAmt + shortAmt;
+
+      let longPercentage = 50;
+      let shortPercentage = 50;
+
+      if (total > 0) {
+        longPercentage = (longAmt / total) * 100;
+        shortPercentage = (shortAmt / total) * 100;
       }
-    }
-  }, [contractAddress, biddingStartTime]);
 
-  // Cập nhật positionHistory khi có thay đổi về positions
-  useEffect(() => {
-    if (!positions || !currentPhase || currentPhase < Phase.Bidding) return;
-    
-    const longAmount = positions.long;
-    const shortAmount = positions.short;
-    const total = longAmount + shortAmount;
-    
-    if (total > 0) {
-      const longPercentage = (longAmount / total) * 100;
-      const shortPercentage = (shortAmount / total) * 100;
-      const timestamp = Math.floor(Date.now() / 1000);
-      
-      // Thêm điểm mới vào positionHistory nếu có thay đổi đáng kể
+      // Cập nhật positionHistory với điểm mới
       setPositionHistory(prev => {
-        // Kiểm tra xem đã có điểm gần đây chưa
-        const lastPoint = prev[prev.length - 1];
-        
         // Cập nhật isCurrentPoint cho tất cả các điểm
         const updatedHistory = prev.map(point => ({
           ...point,
-          isCurrentPoint: false // Đặt tất cả false trước
+          isCurrentPoint: false
         }));
-        
-        // Chỉ thêm điểm mới nếu có thay đổi lớn hơn 0.5% hoặc sau 1 giờ
-        const significantChange = Math.abs(lastPoint?.longPercentage - longPercentage) > 0.5;
-        const timeChange = !lastPoint || (timestamp - lastPoint.timestamp) > 3600;
-        
-        if (significantChange || timeChange) {
-          const newPoint = {
-            timestamp,
-            longPercentage,
-            shortPercentage,
-            isMainPoint: true,
-            isFixed: false,
-            isCurrentPoint: true // Đánh dấu điểm mới nhất
-          };
-          
-          const newHistory = [...updatedHistory, newPoint];
-          
-          // Lưu vào localStorage
-          localStorage.setItem(positionHistoryKey, JSON.stringify(newHistory));
-          return newHistory;
-        }
-        
-        return updatedHistory;
+
+        // Thêm điểm mới
+        const newPoint = {
+          timestamp: ts,
+          longPercentage,
+          shortPercentage,
+          isMainPoint: true,
+          isFixed: false,
+          isCurrentPoint: true
+        };
+
+        return [...updatedHistory, newPoint];
       });
-    }
-  }, [positions, currentPhase]);
+
+      // Cập nhật positions state
+      setPositions({
+        long: longAmt,
+        short: shortAmt
+      });
+    };
+
+    // Đăng ký event listener
+    contract.on("PositionUpdated", handlePositionUpdate);
+
+    // Cleanup khi component unmount
+    return () => {
+      contract.off("PositionUpdated", handlePositionUpdate);
+    };
+  }, [contract, currentPhase]);
+
+  // Loại bỏ useEffect này vì không cần lưu vào localStorage nữa
+  // useEffect(() => {
+  //   if (!positions || !currentPhase || currentPhase < Phase.Bidding) return;
+  //   // ... code cũ để cập nhật localStorage ...
+  // }, [positions, currentPhase]);
 
   // Thêm hàm kiểm tra quyền hạn
   const checkPermissions = async () => {
@@ -1224,37 +1331,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   };
 
-  // Hàm tính toán pot.profit
-  const calculatePotentialProfit = (bidAmount: number) => {
-    if (!contract || !positions || isNaN(bidAmount) || bidAmount <= 0) {
-      setPotentialProfit({ b: 0, c: 0 });
-      return;
-    }
-
-    const totalDeposited = positions.long + positions.short; // Tổng số tiền đã đặt cược
-    const longAmount = positions.long; // Số tiền đã đặt cược ở LONG
-    const shortAmount = positions.short; // Số tiền đã đặt cược ở SHORT
-
-    // Tính toán lợi nhuận tiềm năng cho LONG
-    let longProfit = (bidAmount * totalDeposited) / (longAmount + bidAmount);
-
-    // Tính toán lợi nhuận tiềm năng cho SHORT
-    let shortProfit = (bidAmount * totalDeposited) / (shortAmount + bidAmount);
-
-    // Trừ phí (nếu có)
-    const fee = (bidAmount * Number(feePercentage) / 10);
-    longProfit -= fee;
-    shortProfit -= fee;
-
-    // Đảm bảo b < c
-    let b = Math.min(longProfit, shortProfit);
-    let c = Math.max(longProfit, shortProfit);
-    if (b < 0) {
-      b = 0;
-    }
-    setPotentialProfit({ b, c });
-  };
-
   // Gọi hàm calculatePotentialProfit khi người dùng nhập ETH
   const handleBidAmountChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
@@ -1262,10 +1338,153 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
     // Tính toán pot.profit
     const numValue = parseFloat(value);
-    calculatePotentialProfit(numValue);
+    calculatePotentialProfit(selectedSide, value);
   };
 
+  // Thêm useEffect để tải dữ liệu từ localStorage khi component mount
+  useEffect(() => {
+    // Kiểm tra xem có dữ liệu contract trong localStorage không
+    const cachedData = localStorage.getItem('contractData');
 
+    if (cachedData) {
+      try {
+        const parsedData = JSON.parse(cachedData);
+        const timestamp = parsedData.timestamp || 0;
+        const now = Date.now();
+
+        // Chỉ sử dụng dữ liệu cache nếu nó được lưu trong vòng 5 phút
+        if (now - timestamp < 5 * 60 * 1000) {
+          console.log("Using cached contract data");
+
+          // Cập nhật trading pair và chart symbol
+          if (parsedData.tradingPair) {
+            setTradingPair(parsedData.tradingPair);
+            const formattedSymbol = getChartSymbolFromTradingPair(parsedData.tradingPair);
+            setChartSymbol(formattedSymbol);
+          }
+
+          // Cập nhật state từ dữ liệu cache
+          setStrikePrice(parsedData.strikePrice.toString());
+          setMaturityTime(parseInt(parsedData.maturityTime));
+          setCurrentPhase(parseInt(parsedData.phase));
+
+          // Cập nhật positions nếu có
+          if (parsedData.longAmount && parsedData.shortAmount) {
+            setPositions({
+              long: parseFloat(parsedData.longAmount),
+              short: parseFloat(parsedData.shortAmount)
+            });
+          }
+
+          // Đánh dấu là đã tải xong dữ liệu ban đầu
+          setIsLoadingContractData(false);
+        }
+      } catch (error) {
+        console.error("Error parsing cached contract data:", error);
+      }
+    }
+  }, []);
+
+  // Sửa useEffect để tải dữ liệu contract từ blockchain
+  useEffect(() => {
+    const fetchContractData = async () => {
+      if (!contract) return;
+
+      try {
+        // Nếu đã có dữ liệu từ cache, đánh dấu là đang tải dữ liệu mới trong nền
+        const isBackgroundUpdate = !isLoadingContractData;
+
+        if (!isBackgroundUpdate) {
+          setIsLoadingContractData(true);
+        }
+
+        // Tải tất cả dữ liệu cần thiết song song
+        const [
+          strikePriceResult,
+          maturityTimeResult,
+          tradingPairResult,
+          currentPhaseResult,
+          biddingStartTimeResult,
+          feePercentageResult,
+          positionsResult
+        ] = await Promise.all([
+          contract.strikePrice(),
+          contract.maturityTime(),
+          contract.tradingPair(),
+          contract.currentPhase(),
+          contract.biddingStartTime(),
+          contract.feePercentage(),
+          contract.positions()
+        ]);
+
+        // Xử lý kết quả
+        const strikePrice = parseFloat(ethers.utils.formatEther(strikePriceResult));
+        const maturityTime = maturityTimeResult.toNumber();
+        const tradingPair = tradingPairResult;
+        const currentPhase = currentPhaseResult;
+        const biddingStartTime = biddingStartTimeResult.toNumber();
+        const feePercentage = feePercentageResult.toNumber();
+
+        // Cập nhật state
+        setStrikePrice(strikePrice.toString());
+        setMaturityTime(maturityTime);
+        setTradingPair(tradingPair);
+        setCurrentPhase(currentPhase);
+        setBiddingStartTime(biddingStartTime);
+        setFeePercentage(feePercentage);
+
+        // Cập nhật positions
+        setPositions({
+          long: parseFloat(ethers.utils.formatEther(positionsResult.long)),
+          short: parseFloat(ethers.utils.formatEther(positionsResult.short))
+        });
+
+        // Lưu dữ liệu mới vào localStorage để sử dụng sau này
+        localStorage.setItem('contractData', JSON.stringify({
+          address: contract.address,
+          strikePrice: strikePrice.toString(),
+          maturityTime: maturityTime.toString(),
+          tradingPair: tradingPair,
+          phase: currentPhase.toString(),
+          longAmount: ethers.utils.formatEther(positionsResult.long),
+          shortAmount: ethers.utils.formatEther(positionsResult.short),
+          owner: await contract.owner(),
+          timestamp: Date.now()
+        }));
+
+      } catch (error) {
+        console.error("Error fetching contract data:", error);
+        toast({
+          title: "Error loading contract data",
+          description: error.message || "An unexpected error occurred",
+          status: "error",
+          duration: 5000,
+          isClosable: true,
+        });
+      } finally {
+        setIsLoadingContractData(false);
+      }
+    };
+
+    fetchContractData();
+  }, [contract]);
+
+  // Thêm skeleton UI cho các thông tin đang tải
+  const renderLoadingState = () => (
+    <Box>
+      <Skeleton height="50px" width="80%" my={2} />
+      <Skeleton height="30px" width="60%" my={2} />
+      <Skeleton height="30px" width="70%" my={2} />
+    </Box>
+  );
+
+  // Add this function to reset the betting form
+  const resetBettingForm = () => {
+    setSelectedSide(null);
+    setBidAmount("");
+    setPotentialProfit(0);
+    setProfitPercentage(0);
+  };
 
   return (
     <Box bg="black" minH="100vh">
@@ -1294,43 +1513,59 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       <Box display="flex" alignItems="center" mb={6} ml={6}>
         <HStack>
           {/* Hình ảnh Coin */}
-          <Image
-            src={`/images/${tradingPair.split('/')[0].toLowerCase()}-logo.png`}
-            alt={tradingPair}
-            boxSize="50px"
-            mr={4}
-          />
+          {isLoadingContractData ? (
+            <Skeleton boxSize="50px" mr={4} />
+          ) : (
+            <Image
+              src={`/images/${tradingPair.split('/')[0].toLowerCase()}-logo.png`}
+              alt={tradingPair}
+              boxSize="50px"
+              mr={4}
+            />
+          )}
 
           <Box>
             <Heading size="md" fontSize="30px">
               <HStack>
-                <Text color="#FEDF56" fontSize="30px">
-                  {tradingPair}
-                </Text>
-                <Text color="white" fontSize="25px">
-                  will reach ${strikePrice} by {formatMaturityTime(maturityTime)}
-                </Text>
+                {isLoadingContractData ? (
+                  <Skeleton height="30px" width="200px" />
+                ) : (
+                  <>
+                    <Text color="#FEDF56" fontSize="30px">
+                      {tradingPair}
+                    </Text>
+                    <Text color="white" fontSize="25px">
+                      will reach ${strikePrice} by {formatMaturityTime(maturityTime)}
+                    </Text>
+                  </>
+                )}
               </HStack>
             </Heading>
             <HStack spacing={2}>
-              <HStack color="gray.400">
-                <PiChartLineUpLight />
-                <Text color="gray.400" fontSize="sm">
-                  {totalDeposited.toFixed(2)} ETH |
-                </Text>
-              </HStack>
-              <HStack color="gray.400">
-                <FaRegClock />
-                <Text color="gray.400" fontSize="sm">
-                  {formatMaturityTime(maturityTime)} |
-                </Text>
-              </HStack>
-              <HStack color="gray.400">
-                <GrInProgress />
-                <Text color="gray.400" fontSize="sm">
-                  Phase: {Phase[currentPhase]}
-                </Text>
-              </HStack>
+              {isLoadingContractData ? (
+                <Skeleton height="20px" width="300px" />
+              ) : (
+                <>
+                  <HStack color="gray.400">
+                    <PiChartLineUpLight />
+                    <Text color="gray.400" fontSize="sm">
+                      {totalDeposited.toFixed(2)} ETH |
+                    </Text>
+                  </HStack>
+                  <HStack color="gray.400">
+                    <FaRegClock />
+                    <Text color="gray.400" fontSize="sm">
+                      {formatMaturityTime(maturityTime)} |
+                    </Text>
+                  </HStack>
+                  <HStack color="gray.400">
+                    <GrInProgress />
+                    <Text color="gray.400" fontSize="sm">
+                      Phase: {Phase[currentPhase]}
+                    </Text>
+                  </HStack>
+                </>
+              )}
             </HStack>
           </Box>
           {(currentPhase === Phase.Maturity || currentPhase === Phase.Expiry) && (
@@ -1340,7 +1575,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               p={3}
               mb={4}
               textAlign="center"
-              ml = "100px"
+              ml="100px"
               textColor="white"
             >
               <Text fontWeight="bold">Result: {marketResult}</Text>
@@ -1364,34 +1599,34 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               <TabPanel p={0} pt={4}>
                 <Box position="relative" width="100%">
                   <MarketCharts
-                    chartSymbol={chartSymbol}
-                    strikePrice={parseFloat(strikePrice) || 0}
-                    timeRange={priceTimeRange}
                     chartData={chartData}
-                    positionHistory={[]}
-                    positions={userPositions}
+                    positionHistory={positionHistory}
+                    positions={positions}
+                    strikePrice={parseFloat(strikePrice)}
+                    timeRange={priceTimeRange}
                     chartType="price"
                     onTimeRangeChange={handleTimeRangeChange}
-                    options={{
-                      showPrice: true,
-                      showPositions: false,
-                      }}
-                    />
+                    chartSymbol={chartSymbol}
+                    biddingStartTime={biddingStartTime}
+                    maturityTime={maturityTime}
+                    enhancedPositionData={enhancedPositionData}
+                    setEnhancedPositionData={setEnhancedPositionData}
+                  />
                 </Box>
               </TabPanel>
 
               <TabPanel p={0} pt={4}>
                 <MarketCharts
-                  chartSymbol={chartSymbol}
-                  strikePrice={parseFloat(strikePrice) || 0}
-                  timeRange={positionTimeRange}
                   chartData={[]}
                   positionHistory={positionHistory}
                   positions={positions}
+                  strikePrice={parseFloat(strikePrice)}
+                  timeRange={positionTimeRange}
                   chartType="position"
                   onTimeRangeChange={handleTimeRangeChange}
-                  biddingStartTime={biddingStartTime || Math.floor(Date.now() / 1000) - 3600}
-                  maturityTime={maturityTime || Math.floor(Date.now() / 1000) + 3600}
+                  chartSymbol={chartSymbol}
+                  biddingStartTime={biddingStartTime}
+                  maturityTime={maturityTime}
                 />
               </TabPanel>
             </TabPanels>
@@ -1425,6 +1660,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
         {/* Right Side - Bid Panel and Market Info */}
 
+
         <Box width={{ base: '100%', md: '20%' }} mr={4}>
           {/* Strike Price */}
           <Box
@@ -1444,10 +1680,25 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
             {/* Show Final Price in Maturity and Expiry phases */}
             {(currentPhase === Phase.Maturity || currentPhase === Phase.Expiry) && (
-              <Flex justify="space-between" align="center" mt={2}>
-                <Text color="gray.400">Final Price:</Text>
-                <Text fontWeight="bold">{finalPrice} USD</Text>
+              <Flex justify="space-between" align="center" mt={2} textAlign="center" fontSize="20px" color="#FEDF56">
+                <Text color="gray.400">Final Price: </Text>
+                <Text fontWeight="bold" color="white">{finalPrice} USD</Text>
               </Flex>
+            )}
+
+            {reward > 0 && currentPhase === Phase.Expiry && (
+              <Button
+                onClick={claimReward}
+                colorScheme="yellow"
+                bg="#FEDF56"
+                color="white"
+                _hover={{ bg: "#FFE56B" }}
+                isDisabled={reward === 0}
+                width="100%"
+                mt={4}
+              >
+                Claim {reward.toFixed(4)} ETH
+              </Button>
             )}
           </Box>
 
@@ -1530,23 +1781,21 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                 borderColor="gray.300"
                 borderRadius="20px"
                 colorScheme="gray"
-                bg="gray.600"
+                bg="gray.800"
                 width="50%"
-                onClick={() => handleBid(Side.Long)}
-                isLoading={isResolving}
-                loadingText="Bidding..."
+                onClick={() => handleSelectSide(Side.Long)}
                 leftIcon={<FaArrowUp />}
                 textColor="#28a745"
                 textShadow="1px 1px 12px rgba(40, 167, 69, 0.7)"
-                isDisabled={!isConnected || parseFloat(bidAmount) <= 0 || currentPhase !== Phase.Bidding}
+                isDisabled={!isConnected || currentPhase !== Phase.Bidding}
                 _hover={{
                   bg: "gray.700",
-                  boxShadow: "0 4px 8px rgba(40, 167, 69, 0.2)",
+                  boxShadow: "0 4px 8px rgba(220, 53, 69, 0.2)",
                 }}
                 _active={{
-                  bg: "gray.800",
-                  transform: "scale(0.98)",
+                  bg: "#cececc",
                 }}
+                isActive={selectedSide === Side.Long}
               >
                 UP
               </Button>
@@ -1555,23 +1804,21 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                 borderColor="gray.300"
                 borderRadius="20px"
                 colorScheme="gray"
-                bg="gray.600"
+                bg="gray.800"
+                width="50%"
+                onClick={() => handleSelectSide(Side.Short)}
+                leftIcon={<FaArrowDown />}
                 textColor="#dc3545"
                 textShadow="1px 1px 12px rgba(220, 53, 69, 0.7)"
-                width="50%"
-                onClick={() => handleBid(Side.Short)}
-                isLoading={isResolving}
-                loadingText="Bidding..."
-                leftIcon={<FaArrowDown />}
-                isDisabled={!isConnected || parseFloat(bidAmount) <= 0 || currentPhase !== Phase.Bidding}
+                isDisabled={!isConnected || currentPhase !== Phase.Bidding}
                 _hover={{
                   bg: "gray.700",
                   boxShadow: "0 4px 8px rgba(220, 53, 69, 0.2)",
                 }}
                 _active={{
-                  bg: "gray.800",
-                  transform: "scale(0.98)",
+                  bg: "#cececc",
                 }}
+                isActive={selectedSide === Side.Short}
               >
                 DOWN
               </Button>
@@ -1582,37 +1829,55 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
             <FormControl mb={2} mt={6} color="white">
               <FormLabel>You're betting</FormLabel>
               <Input
-                placeholder="0.0000"
+                placeholder="Enter amount in ETH"
+                bg="gray.800"
+                color="white"
+                borderColor="gray.600"
+                borderRadius="md"
+                mb={3}
+                ml={2}
+                mr={2}
                 value={bidAmount}
-                onChange={e => setBidAmount(e.target.value)}
                 onChange={handleBidAmountChange}
-                mb={2}
-                isDisabled={currentPhase !== Phase.Bidding}
+              //onReset={resetBettingForm}
               />
             </FormControl>
 
-            <HStack spacing={2} mt={1} mb={4} ml={2} mr={2} alignItems="center" justifyContent="center">
+            <HStack spacing={2} mt={1} mb={2} ml={2} mr={2} alignItems="center" justifyContent="center">
               <Button
-                width="180px"
-                alignItems="center"
-                justifyContent="center"
-                bg="#3131f7"
+                colorScheme="#0040C1"
+                bg="#0040C1"
                 color="white"
-                _hover={{ bg: "#0000f7" }}
+                _hover={{ bg: "#0040C1" }}
+                width="100%"
+                py={6}
+                mb={3}
+                ml={2}
+                mr={2}
+                onClick={() => handleBid()}
+                isLoading={isResolving}
+                loadingText="Placing bid..."
+                isDisabled={!isConnected || selectedSide === null || currentPhase !== Phase.Bidding}
               >
                 Betting to rich
               </Button>
             </HStack>
-
-            <Flex justify="space-between" mb={4}>
-              <Text color="gray.400">Pot. profit:</Text>
-              <Text color="white">
-                {potentialProfit.b.toFixed(4)} -> {potentialProfit.c.toFixed(4)} ETH
+            <Flex justify="space-between" px={2} mb={1}>
+              <Text fontSize="lg" color="gray.400">
+                Fee:
+              </Text>
+              <Text fontSize="lg" color="gray.400">
+                {Number(feePercentage) / 10}%
               </Text>
             </Flex>
-            <Flex justify="space-between" mb={4}>
-              <Text color="gray.400">Fee:</Text>
-              <Text color="white">{Number(feePercentage) / 10}%</Text>
+
+            <Flex justify="space-between" px={2} mb={1}>
+              <Text color="gray.400" fontSize="lg">
+                Pot. profit:
+              </Text>
+              <Text color={profitPercentage > 0 ? "green.400" : "gray.400"} fontSize="lg">
+                {potentialProfit} {profitPercentage !== 0 ? `(${profitPercentage > 0 ? '+' : ''}${profitPercentage.toFixed(2)}%)` : ''} ETH
+              </Text>
             </Flex>
 
             {/* Your Position */}
@@ -1653,7 +1918,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
             position="relative" // Để cho box con có thể đè lên
             height="282px"
           >
-            <Text fontSize="lg" fontWeight="bold" mb={4} color="#FEDF56" textAlign="center">
+            <Text fontSize="lg" fontWeight="bold" mb={4} color="#060688" textAlign="center">
               Market is Live
             </Text>
 
@@ -1781,6 +2046,9 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               <Button
                 onClick={claimReward}
                 colorScheme="yellow"
+                bg="#FEDF56"
+                color="white"
+                _hover={{ bg: "#FFE56B" }}
                 isDisabled={reward === 0}
                 width="100%"
                 mt={4}
