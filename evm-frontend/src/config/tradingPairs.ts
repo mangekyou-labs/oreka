@@ -9,7 +9,7 @@ export const CONTRACT_TRADING_PAIRS: { [key: string]: string } = {};
 
 export const setContractTradingPair = (contractAddress: string, tradingPair: string) => {
     CONTRACT_TRADING_PAIRS[contractAddress] = tradingPair;
-    // Lưu vào localStorage để dữ liệu không bị mất khi refresh
+    
     localStorage.setItem('contractTradingPairs', JSON.stringify(CONTRACT_TRADING_PAIRS));
 };
 

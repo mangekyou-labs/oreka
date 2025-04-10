@@ -3,9 +3,7 @@ import { ethers } from 'ethers';
 import { Box, Button, Input, VStack, useToast, HStack, Icon, SimpleGrid, Text, Select, Divider, Progress, InputGroup, InputRightAddon, Spinner, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip, InputRightElement } from '@chakra-ui/react';
 import { FaEthereum, FaWallet, FaArrowUp, FaArrowDown, FaClock } from 'react-icons/fa';
 import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketABI.json';
-import Factory from '../contracts/abis/FactoryABI.json';  // ABI của Factory contract
-import ListAddressOwner from './ListAddressOwner'; // Import ListAddressOwner
-import { fetchMarketDetails } from './Customer';
+import Factory from '../contracts/abis/FactoryABI.json';  // ABI of Factory contract
 import { FACTORY_ADDRESS } from '../config/contracts';
 import { setContractTradingPair } from '../config/tradingPairs';
 import { useAuth } from '../context/AuthContext';
@@ -17,56 +15,72 @@ interface OwnerProps {
   address: string;
 }
 
-// Thêm interface cho Coin với currentPrice
+// Add interface for Coin with currentPrice
 interface Coin {
   value: string;
   label: string;
   currentPrice: number;
 }
 
+// Add constant for converting real number
+const STRIKE_PRICE_MULTIPLIER = 100000000; // 10^8 - allow up to 8 decimal places
+
+// Owner component: Allows users to create and manage binary option markets
+// This component handles market creation, fee setting, and contract deployment
 const Owner: React.FC<OwnerProps> = ({ address }) => {
+  // Authentication context for wallet connection and balance
   const { isConnected, walletAddress, balance, connectWallet, refreshBalance } = useAuth();
+  
+  // State for contract information
   const [contractAddress, setContractAddress] = useState('');
   const [strikePrice, setStrikePrice] = useState('');
   const [contractBalance, setContractBalance] = useState('');
-  const [deployedContracts, setDeployedContracts] = useState<string[]>([]); // Add this line
-  const [factoryAddress, setFactoryAddress] = useState('');
-  // Thêm state cho selectedCoin
+  const [deployedContracts, setDeployedContracts] = useState<string[]>([]); // Stores list of user's deployed contracts
+  
+  // State for trading pair selection
   const [selectedCoin, setSelectedCoin] = useState<Coin | null>(null);
+  
+  // State for maturity date and time
   const [maturityDate, setMaturityDate] = useState('');
   const [maturityTime, setMaturityTime] = useState('');
   
-  // Thêm state cho gas price và estimated fee
+  // State for gas settings and fee estimation
   const [gasPrice, setGasPrice] = useState('78');
   const [estimatedGasFee, setEstimatedGasFee] = useState('276.40');
   const [estimatedGasUnits, setEstimatedGasUnits] = useState<string>("0");
   const [isCalculatingFee, setIsCalculatingFee] = useState(false);
   const [daysToExercise, setDaysToExercise] = useState<string>('Not set');
+  
+  // State for price tracking
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [priceChangePercent, setPriceChangePercent] = useState<number>(0);
   
-  // Cập nhật danh sách coins có sẵn với giá hiện tại
+  // Available trading pairs with current prices
   const [availableCoins, setAvailableCoins] = useState<Coin[]>([
     { value: "BTCUSD", label: "BTC/USD", currentPrice: 47406.92 },
     { value: "ETHUSD", label: "ETH/USD", currentPrice: 3521.45 },
     { value: "ICPUSD", label: "ICP/USD", currentPrice: 12.87 }
   ]);
 
-  // Thêm state cho fee
+  // State for market creator fee
   const [feePercentage, setFeePercentage] = useState<string>("1.0");
   const [showTooltip, setShowTooltip] = useState(false);
 
-  // Thêm handler cho việc chọn coin
+  // Factory contract address from config
+  const FactoryAddress = FACTORY_ADDRESS;
+  const toast = useToast();
+
+  // Handler for coin selection dropdown
   const handleCoinSelect = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const selected = availableCoins.find(coin => coin.value === event.target.value);
     setSelectedCoin(selected || null);
-    setCurrentPrice(null); // Reset giá để trigger useEffect lấy giá mới
+    setCurrentPrice(null);
   };
 
-  // Thêm hàm tính Network fee (gas)
+  // Calculate network fee (gas) for contract deployment
   const calculateNetworkFee = async () => {
     if (!selectedCoin || !strikePrice || !maturityDate || !maturityTime) {
-      setEstimatedGasFee(""); // Giá trị mặc định
+      setEstimatedGasFee(""); // Default value
       return;
     }
 
@@ -76,23 +90,23 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
       
-      // Chuyển đổi strikePrice thành BigNumber
+      // Convert strikePrice to BigNumber
       const strikePriceValue = ethers.utils.parseUnits(strikePrice, "0");
       
-      // Chuyển đổi maturity date và time thành timestamp
+      // Convert maturity date and time to timestamp
       const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
       
-      // Tạo một factory để ước tính gas khi deploy
+      // Create a factory to estimate gas when deploy
       const factory = new ethers.ContractFactory(
         BinaryOptionMarket.abi,
         BinaryOptionMarket.bytecode,
         signer
       );
       
-      // Chuyển đổi fee thành số nguyên (nhân 10 để xử lý số thập phân)
+      // Convert fee to integer (multiply by 10 to handle decimal)
       const feeValue = Math.round(parseFloat(feePercentage) * 10);
       
-      // Tạo dữ liệu cho việc deploy - THÊM feeValue vào đây
+      // Create data for deploy - add feeValue here
       const deployData = factory.getDeployTransaction(
         strikePriceValue,
         await signer.getAddress(),
@@ -101,15 +115,15 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         feeValue
       ).data || '0x';
       
-      // Ước tính gas units cần thiết cho việc deploy
+      // Estimate gas units needed for deploy
       const gasUnits = await provider.estimateGas({
         from: walletAddress,
         data: deployData
       });
       
-      // Ước tính gas cho việc đăng ký với Factory
+      // Estimate gas for registering with Factory
       const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, signer);
-      const factoryData = factoryContract.interface.encodeFunctionData('deploy', [FACTORY_ADDRESS]); // Địa chỉ tạm thời
+      const factoryData = factoryContract.interface.encodeFunctionData('deploy', [FACTORY_ADDRESS]); // Temporary address
       
       const factoryGasUnits = await provider.estimateGas({
         from: walletAddress,
@@ -117,16 +131,16 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         data: factoryData
       });
       
-      // Tổng gas units cần thiết
+      // Total gas units needed
       const totalGasUnits = gasUnits.add(factoryGasUnits);
       setEstimatedGasUnits(totalGasUnits.toString());
       
-      // Tính toán chi phí gas
+      // Calculate gas cost
       const gasPriceWei = ethers.utils.parseUnits(gasPrice, "gwei");
       const gasFeeWei = totalGasUnits.mul(gasPriceWei);
       const gasFeeEth = parseFloat(ethers.utils.formatEther(gasFeeWei));
       
-      // Chuyển đổi từ ETH sang USD (giả sử 1 ETH = 3500 USD - bạn có thể sử dụng PriceService để lấy giá chính xác)
+      // Get current ETH price to calculate USD value
       const priceService = PriceService.getInstance();
       let ethUsdPrice = 3500;
       try {
@@ -136,39 +150,23 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         console.error('Error fetching ETH price:', error);
       }
       
+      // Calculate fee in USD
       const gasFeeUsd = (gasFeeEth * ethUsdPrice).toFixed(2);
       setEstimatedGasFee(gasFeeUsd);
     } catch (error) {
       console.error('Error calculating network fee:', error);
-      setEstimatedGasFee("276.40"); // Giá trị mặc định nếu có lỗi
+      setEstimatedGasFee("276.40"); // Default value if error
     } finally {
       setIsCalculatingFee(false);
     }
   };
   
-  // Thêm useEffect để tính lại network fee khi các thông số thay đổi
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      calculateNetworkFee();
-    }, 500); // Delay 500ms để tránh tính toán quá nhiều lần
-    
-    return () => clearTimeout(timer);
-  }, [selectedCoin, strikePrice, maturityDate, maturityTime, gasPrice]);
-  
-  // Thêm handler cho việc chọn gas price
-  const handleGasPriceChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const newGasPrice = event.target.value;
-    setGasPrice(newGasPrice);
-  };
-
-  const FactoryAddress = FACTORY_ADDRESS;
-  const toast = useToast();
-
+  // Listen for contract deployment events from the Factory contract
   useEffect(() => {
     const provider = new ethers.providers.Web3Provider(window.ethereum);
     const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, provider);
 
-    // Lắng nghe sự kiện Deployed
+    // Listen to Deployed event
     factoryContract.on("Deployed", (owner, newContractAddress, index) => {
       console.log("Event 'Deployed' received:");
       console.log("Owner:", owner);
@@ -176,7 +174,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       console.log("Index:", index);
 
       setContractAddress(newContractAddress);
-      setDeployedContracts(prev => [...prev, newContractAddress]); // Cập nhật danh sách contract
+      setDeployedContracts(prev => [...prev, newContractAddress]); // Update contract list
 
       toast({
         title: "Contract deployed successfully!",
@@ -188,16 +186,31 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     });
 
     return () => {
-      // Cleanup: hủy lắng nghe khi component bị unmount
+      // Cleanup: remove listener when component unmounts
       console.log("Removing event listener on Factory contract...");
       factoryContract.removeAllListeners("Deployed");
     };
   }, []);
 
-  // Thêm useEffect để cập nhật balance theo thời gian thực
+  // Recalculate network fee when parameters change
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      calculateNetworkFee();
+    }, 500); // Delay 500ms to avoid too many calculations
+    
+    return () => clearTimeout(timer);
+  }, [selectedCoin, strikePrice, maturityDate, maturityTime, gasPrice]);
+  
+  // Handler for gas price dropdown
+  const handleGasPriceChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const newGasPrice = event.target.value;
+    setGasPrice(newGasPrice);
+  };
+
+  // Update wallet balance in real time
   useEffect(() => {
     if (isConnected) {
-      // Cập nhật ban đầu
+      // Update initial balance
       refreshBalance();
 
       const provider = new ethers.providers.Web3Provider(window.ethereum);
@@ -209,7 +222,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     }
   }, [isConnected, refreshBalance]);
 
-  // Thêm hàm fetchBalance
+  // Fetch wallet balance
   const fetchBalance = async () => {
     if (!walletAddress) return;
     try {
@@ -222,20 +235,20 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     }
   };
 
-  // Thêm useEffect để lắng nghe sự kiện từ blockchain
+  // Listen to blockchain events to update balance
   useEffect(() => {
     if (!walletAddress) return;
 
-    // Cập nhật balance ban đầu
+    // Update initial balance
     fetchBalance();
 
-    // Lắng nghe sự kiện block mới
+    // Listen to block event
     const provider = new ethers.providers.Web3Provider(window.ethereum);
     provider.on("block", () => {
       fetchBalance();
     });
 
-    // Sử dụng type assertion cho ethereum
+    // Use type assertion for ethereum
     const ethereum = window.ethereum as any;
     ethereum.on('accountsChanged', fetchBalance);
 
@@ -247,7 +260,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     };
   }, [walletAddress]);
 
-  // Thêm hàm resetForm
+  // Reset form to default values
   const resetForm = () => {
     setSelectedCoin(null);
     setStrikePrice('');
@@ -259,7 +272,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     setPriceChangePercent(0);
   };
 
-  // Thêm hàm để ước tính gas
+  // Estimate gas for contract deployment
   const estimateGas = async () => {
     try {
       if (!selectedCoin || !strikePrice || !maturityDate || !maturityTime) {
@@ -268,20 +281,28 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
-      const strikePriceValue = ethers.utils.parseUnits(strikePrice, "0");
+      
+      // Convert float to large integer
+      const strikePriceFloat = parseFloat(strikePrice);
+      const strikePriceInteger = Math.round(strikePriceFloat * STRIKE_PRICE_MULTIPLIER);
+      const strikePriceValue = ethers.BigNumber.from(strikePriceInteger.toString());
+      
       const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
       
-      // Chuyển đổi fee thành số nguyên (nhân 10 để xử lý số thập phân)
+      // Convert fee to integer (multiply by 10 to handle decimal)
       const feeValue = Math.round(parseFloat(feePercentage) * 10);
 
-      // Tạo contract factory để ước tính gas
+      // Sample index background (using 5 as an example for estimation)
+      const indexBg = 5;
+
+      // Create contract factory to estimate gas
       const factory = new ethers.ContractFactory(
         BinaryOptionMarket.abi,
         BinaryOptionMarket.bytecode,
         signer
       );
 
-      // Ước tính gas cho việc deploy - THÊM feeValue vào đây
+      // Estimate gas for deployment - add indexBg here
       const estimatedGas = await provider.estimateGas({
         from: walletAddress,
         data: factory.getDeployTransaction(
@@ -289,31 +310,47 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
           await signer.getAddress(),
           selectedCoin.label,
           maturityTimestamp,
-          feeValue
+          feeValue,
+          indexBg
         ).data || '0x'
       });
 
-      // Tính toán phí gas dựa trên gas price hiện tại
+      // Calculate gas fee based on current gas price
       const gasPriceWei = ethers.utils.parseUnits(gasPrice, "gwei");
       const gasFeeEth = parseFloat(ethers.utils.formatEther(estimatedGas.mul(gasPriceWei)));
-      const gasFeeUsd = (gasFeeEth * 3500).toFixed(2); // Giả sử 1 ETH = 3500 USD
       
+      // Fetch current ETH price from PriceService instead of using hardcoded value
+      const priceService = PriceService.getInstance();
+      let ethUsdPrice = 3500; // Default fallback value if fetch fails
+      
+      try {
+        // Use ETH-USD as the symbol for Ethereum price
+        const ethPriceData = await priceService.fetchPrice('ETH-USD');
+        ethUsdPrice = ethPriceData.price;
+        console.log('Current ETH price:', ethUsdPrice);
+      } catch (priceError) {
+        console.error('Error fetching ETH price:', priceError);
+        // Continue with default value if fetch fails
+      }
+      
+      // Calculate fee in USD using the fetched ETH price
+      const gasFeeUsd = (gasFeeEth * ethUsdPrice).toFixed(2);
       setEstimatedGasFee(gasFeeUsd);
     } catch (error) {
       console.error("Error estimating gas:", error);
-      setEstimatedGasFee("276.40"); // Giá trị mặc định nếu có lỗi
+      setEstimatedGasFee("276.40"); // Default value if error
     }
   };
 
-  // Gọi hàm ước tính gas khi các thông tin cần thiết thay đổi
+  // Call the estimate gas function when necessary params change
   useEffect(() => {
     estimateGas();
   }, [selectedCoin, strikePrice, maturityDate, maturityTime, gasPrice]);
 
-  // Hàm xử lý khi thay đổi fee từ input
+  // Handler for fee input changes
   const handleFeeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    // Chỉ cho phép số và dấu chấm
+    // Only allow numbers and decimal point
     if (/^\d*\.?\d*$/.test(value)) {
       const numValue = parseFloat(value);
       if (isNaN(numValue) || value === '') {
@@ -323,14 +360,13 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       } else if (numValue > 20) {
         setFeePercentage('20');
       } else {
-        // Đảm bảo giá trị có 1 chữ số thập phân để đồng bộ với slider
+        // Ensure value has 1 decimal place to sync with slider
         setFeePercentage(numValue.toFixed(1));
       }
     }
   };
   
-
-  // Cập nhật hàm deployContract để bao gồm fee
+  // Deploy a new binary option market contract
   const deployContract = async () => {
     try {
       // Validation checks
@@ -345,10 +381,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         return;
       }
 
-      // Lấy timestamp theo Eastern Time
+      // Get timestamp in Eastern Time
       const maturityTimestamp = createMaturityTimestamp();
       
-      // Kiểm tra xem maturityTimestamp có lớn hơn thời gian hiện tại không
+      // Check if maturityTimestamp is in the future
       if (maturityTimestamp <= Math.floor(Date.now() / 1000)) {
         toast({
           title: "Error",
@@ -362,9 +398,13 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
-      const strikePriceValue = ethers.utils.parseUnits(strikePrice, "0");
+      
+      // Convert float to large integer by multiplying with MULTIPLIER
+      const strikePriceFloat = parseFloat(strikePrice);
+      const strikePriceInteger = Math.round(strikePriceFloat * STRIKE_PRICE_MULTIPLIER);
+      const strikePriceValue = ethers.BigNumber.from(strikePriceInteger.toString());
 
-      // Thiết lập gas price
+      // Set gas price
       const overrides = {
         gasPrice: ethers.utils.parseUnits(gasPrice, "gwei")
       };
@@ -375,10 +415,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         signer
       );
 
-      // Chuyển đổi fee thành số nguyên (nhân 10 để xử lý số thập phân)
+      // Convert fee to integer (multiply by 10 to handle decimal)
       const feeValue = Math.round(parseFloat(feePercentage) * 10);
 
-      // Deploy với thêm maturityTimestamp, gas price và fee
+      // Deploy with maturityTimestamp, gas price and fee
       const contract = await factory.deploy(
         strikePriceValue,
         await signer.getAddress(),
@@ -395,7 +435,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
       setContractAddress(contract.address);
       await fetchContractsByOwner();
-      await fetchBalance(); // Thêm dòng này
+      await fetchBalance();
 
       toast({
         title: "Success",
@@ -420,17 +460,17 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     }
   };
 
-
+  // Fetch contract balance
   const fetchContractBalance = async () => {
     try {
-      console.log("Fetching contract balance..."); // Log trước khi lấy balance
+      console.log("Fetching contract balance..."); // Log before fetching balance
       const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const contractBalanceWei = await provider.getBalance(contractAddress); // Lấy số dư của contract
-      const contractBalanceEth = parseFloat(ethers.utils.formatEther(contractBalanceWei)); // Chuyển đổi từ Wei sang ETH
-      setContractBalance(contractBalanceEth.toFixed(4)); // Cập nhật số dư
+      const contractBalanceWei = await provider.getBalance(contractAddress); // Get contract balance
+      const contractBalanceEth = parseFloat(ethers.utils.formatEther(contractBalanceWei)); // Convert from Wei to ETH
+      setContractBalance(contractBalanceEth.toFixed(4)); // Update balance
       console.log("Contract Balance:", contractBalanceEth);
     } catch (error: any) {
-      console.error("Failed to fetch contract balance:", error); // In lỗi nếu có vấn đề
+      console.error("Failed to fetch contract balance:", error); // Print error if there's an issue
       toast({
         title: "Error fetching contract balance",
         description: error.message || "An unexpected error occurred.",
@@ -441,26 +481,27 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     }
   };
 
+  // Listen for new contract deployment events to update contracts list
   useEffect(() => {
     const provider = new ethers.providers.Web3Provider(window.ethereum);
     const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, provider);
 
-    // Lắng nghe sự kiện ContractStored để cập nhật hợp đồng khi có hợp đồng mới
+    // Listen for Deployed event to update contracts when a new contract is created
     factoryContract.on("Deployed", (owner, contractAddress, index) => {
       console.log("New contract stored:", contractAddress);
-      fetchContractsByOwner(); // Cập nhật danh sách hợp đồng sau khi nhận sự kiện
+      fetchContractsByOwner(); // Update contracts list after receiving event
     });
 
     return () => {
-      // Hủy lắng nghe sự kiện khi component bị unmount
+      // Unsubscribe from event when component unmounts
       factoryContract.off("Deployed", (owner, contractAddress, index) => {
         console.log("New contract stored:", contractAddress);
-        fetchContractsByOwner(); // Cập nhật danh sách hợp đồng sau khi nhận sự kiện
+        fetchContractsByOwner(); // Update contracts list after receiving event
       });
     };
   }, [walletAddress]);
 
-
+  // Fetch all contracts owned by the current wallet address
   const fetchContractsByOwner = async () => {
     try {
       // Check if wallet is connected
@@ -472,11 +513,11 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const contract = new ethers.Contract(FactoryAddress, Factory.abi, provider);
 
-      // Log để debug
+      // Debug logs
       console.log("Fetching contracts for address:", walletAddress);
       console.log("Using Factory at:", FactoryAddress);
 
-      // Thêm check address hợp lệ
+      // Add valid address check
       if (!ethers.utils.isAddress(walletAddress)) {
         throw new Error("Invalid wallet address");
       }
@@ -497,21 +538,25 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     }
   };
 
+  // Fetch contract balance when contract address changes
   useEffect(() => {
     if (contractAddress) {
       fetchContractBalance();
     }
   }, [contractAddress]);
+  
+  // Fetch contracts when wallet address changes
   useEffect(() => {
     if (walletAddress) {
       fetchContractsByOwner();
     }
   }, [walletAddress]);
 
+  // Utility function to shorten addresses for display
   const shortenAddress = (address: string) => {
     if (!address) return '';
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
-};
+  };
 
   // Fetch current prices from Coinbase API
   useEffect(() => {
@@ -545,7 +590,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       const now = new Date();
       const maturityDateTime = new Date(`${maturityDate} ${maturityTime}`);
       
-      // Tính số ngày còn lại
+      // Calculate remaining days
       const diffTime = maturityDateTime.getTime() - now.getTime();
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       
@@ -570,13 +615,13 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     }
   }, [maturityDate, maturityTime]);
 
-  // Lấy giá hiện tại từ Coinbase thông qua PriceService
+  // Fetch current price from Coinbase via PriceService
   useEffect(() => {
     if (selectedCoin) {
       const priceService = PriceService.getInstance();
       const fetchCurrentPrice = async () => {
         try {
-          // Chuyển đổi từ BTCUSD sang BTC-USD nếu cần
+          // Convert from BTCUSD to BTC-USD if needed
           const formattedSymbol = selectedCoin.value.includes('-') 
             ? selectedCoin.value 
             : `${selectedCoin.value.substring(0, 3)}-${selectedCoin.value.substring(3)}`;
@@ -584,7 +629,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
           const priceData = await priceService.fetchPrice(formattedSymbol);
           setCurrentPrice(priceData.price);
           
-          // Tính toán phần trăm thay đổi nếu có strikePrice
+          // Calculate percent change if strikePrice is set
           if (strikePrice && strikePrice !== '') {
             const strikePriceNum = parseFloat(strikePrice);
             if (!isNaN(strikePriceNum) && strikePriceNum > 0) {
@@ -599,20 +644,18 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       
       fetchCurrentPrice();
       
-      // Cập nhật giá mỗi 30 giây
+      // Update price every 30 seconds
       const intervalId = setInterval(fetchCurrentPrice, 30000);
       
       return () => clearInterval(intervalId);
     }
   }, [selectedCoin, strikePrice]);
 
-  
-
+  // Create Unix timestamp from date and time inputs
   const createMaturityTimestamp = () => {
     if (!maturityDate || !maturityTime) return 0;
     
     try {
-      
       const [hours, minutes] = maturityTime.split(':').map(Number);
       const dateObj = new Date(`${maturityDate}T00:00:00`);
       dateObj.setHours(hours, minutes, 0, 0);
@@ -624,9 +667,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     }
   };
 
-  
-
-
+  // Component UI render
   return (
     <Box bg="#0a1647" minH="100vh" color="white">
       {/* Header - Wallet Info */}
@@ -656,6 +697,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
       <VStack spacing={8} p={8}>
         {!isConnected ? (
+          // Wallet connection button shown when not connected
           <Button
             onClick={connectWallet}
             variant="outline"
@@ -675,14 +717,13 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
           </Button>
         ) : (
           <>
-            {/* OREKA Logo */}
-
-
+            {/* Main content area - displayed after wallet connection */}
             {/* Main content area with two columns */}
             <HStack spacing={0} w="full" maxW="1200px" align="flex-start" position="relative">
               {/* Left side - Market Creation Form */}
               <Box flex={1} pr={8} position="relative">
                 <VStack spacing={6} align="stretch">
+                  {/* Information note about market creation */}
                   <Box p={4} bg="rgba(255,255,255,0.05)" borderRadius="xl">
                     <Text fontSize="sm" color="white">
                       Note: When creating a market, you're establishing a binary options contract
@@ -692,6 +733,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                     </Text>
                   </Box>
 
+                  {/* Asset selection dropdown */}
                   <Box>
                     <Text color="white" mb={4} fontWeight="bold">SELECT ASSET:</Text>
                     <Select
@@ -727,6 +769,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                     </Select>
                   </Box>
 
+                  {/* Strike price input */}
                   <Box>
                     <Text color="white" mb={4} fontWeight="bold">STRIKE PRICE:</Text>
                     <InputGroup>
@@ -762,6 +805,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                     </InputGroup>
                   </Box>
 
+                  {/* Maturity date and time inputs */}
                   <HStack spacing={4}>
                     <Box flex={1}>
                       <Text color="white" mb={4} fontWeight="bold">MARKET MATURITY DATE:</Text>
@@ -805,7 +849,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                     </Box>
                   </HStack>
 
-                  {/* Fee Setting Box */}
+                  {/* Fee Setting Box - slider and input */}
                   <Box>
                     <HStack spacing={4} align="center">
                       <Text color="white" fontWeight="bold" minW="50px">FEE:</Text>
@@ -818,7 +862,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                           step={0.1}
                           value={parseFloat(feePercentage) || 0.1}
                           onChange={(val) => {
-                            // Cập nhật giá trị feePercentage với số thập phân 1 chữ số
+                            // Update feePercentage with 1 decimal place
                             const formattedValue = val.toFixed(1);
                             setFeePercentage(formattedValue);
                           }}
@@ -876,7 +920,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                     </Text>
                   </Box>
 
-                  {/* Network Fee Section */}
+                  {/* Network Fee Section - gas settings */}
                   <Box mt={4}>
                     <HStack justify="space-between">
                       <Text color="white">Network fee (gas)</Text>
@@ -927,7 +971,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                 </VStack>
               </Box>
 
-              {/* Vertical Divider */}
+              {/* Vertical Divider between columns */}
               <Box 
                 position="absolute" 
                 left="50%" 
@@ -938,10 +982,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                 transform="translateX(-50%)"
               />
 
-              {/* Right side - Market Details */}
+              {/* Right side - Market Details and Preview */}
               <Box flex={1} pl={8}>
                 <VStack spacing={6} align="center">
-                  {/* OREKA Logo instead of BTC icon */}
+                  {/* OREKA Logo */}
                   <Text 
                     fontSize="5xl" 
                     fontWeight="bold" 
@@ -954,7 +998,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                     OREKA
                   </Text>
 
-                  {/* Market Details Box */}
+                  {/* Market Details Box - Preview of market parameters */}
                   <Box
                     p={6}
                     bg="rgba(255,255,255,0.05)"
@@ -1085,6 +1129,5 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     </Box>
   );
 };
-
 
 export default Owner;

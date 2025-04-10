@@ -1,49 +1,43 @@
+/**
+ * Customer Component
+ * 
+ * This component represents the main customer interface for the binary options market.
+ * It allows users to view market details, place bids, track positions, and claim rewards.
+ * The component manages the entire lifecycle of market participation from the customer perspective.
+ */
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useCallback } from 'react'; // Thêm import useCallback
+import { useCallback } from 'react';
 import {
   Flex, Box, Text, Button, VStack, useToast, Input, Heading, Image,
-  Select, HStack, Icon, ScaleFade, Table, Thead, Tbody, Tab, Tr, Th, Td, Spacer, Tabs, TabList, TabPanels, TabPanel, Circle, FormControl, FormLabel,
-  Link, Skeleton
+  HStack, Icon, Tab, Spacer, Tabs, TabList, TabPanels, TabPanel, Circle, FormControl, FormLabel,
+  Link, Skeleton, UnorderedList, ListItem
 } from '@chakra-ui/react';
-import { FaEthereum, FaWallet, FaTrophy, FaChevronLeft, FaShare, FaArrowUp, FaArrowDown, FaExternalLinkAlt, FaBalanceScale, FaCoins, FaChevronRight, FaCalendarAlt, FaRegClock, } from 'react-icons/fa';
+import { ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons';
+import { FaWallet, FaChevronLeft, FaArrowUp, FaArrowDown, FaCoins, FaChevronRight, FaRegClock } from 'react-icons/fa';
 import { PiChartLineUpLight } from "react-icons/pi";
 import { GrInProgress } from "react-icons/gr";
 import { ethers } from 'ethers';
-import { BigNumber } from 'ethers';
 import { motion, useAnimation } from 'framer-motion';
 import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketABI.json';
 import { PriceService, PriceData } from '../services/PriceService';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { SiBitcoinsv } from 'react-icons/si';
-import { useRouter } from 'next/router'; // Thêm import này
-import { getContractTradingPair, getChartSymbol } from '../config/tradingPairs';
+import { useRouter } from 'next/router';
 import { useAuth } from '../context/AuthContext';
 import MarketCharts from './charts/MarketCharts';
-import { toZonedTime } from 'date-fns-tz';
+
 import { format } from 'date-fns';
 import { formatTimeToLocal, getCurrentTimestamp, getTimeRemaining } from '../utils/timeUtils';
+import { STRIKE_PRICE_MULTIPLIER } from '../utils/constants';
 
+/**
+ * Enums for market sides and phases
+ */
 enum Side { Long, Short }
 enum Phase { Trading, Bidding, Maturity, Expiry }
 
 
-interface Coin {
-  value: string;
-  label: string;
-}
-
-interface PositionHistory {
-  timestamp: number;
-  longPercentage: number;
-  shortPercentage: number;
-}
-
-// Thêm interface cho symbol mapping
-interface CoinSymbol {
-  [key: string]: string;
-}
-
-// Thêm interface cho position data
+/**
+ * Interface for position data tracking
+ */
 interface PositionData {
   timestamp: number;
   longPercentage: number;
@@ -51,26 +45,31 @@ interface PositionData {
   isVisible: boolean;
 }
 
-// Thêm interface cho position point
+/**
+ * Interface for position point used in charts and history
+ */
 interface PositionPoint {
   timestamp: number;
   longPercentage: number | null;
   shortPercentage: number | null;
   isMainPoint: boolean;
   isFixed?: boolean;
-  isCurrentPoint?: boolean; // Flag mới để đánh dấu điểm hiện tại
+  isCurrentPoint?: boolean;
 }
 
-// Thêm interface cho event history
-interface BidEvent {
-  timestamp: number;
-  longAmount: BigNumber;
-  shortAmount: BigNumber;
-}
-
+/**
+ * Props interface for the Customer component
+ */
 interface CustomerProps {
   contractAddress?: string;
 }
+
+
+/**
+ * Utility function to fetch market details from a contract
+ * @param contract - The ethers.js contract instance
+ * @returns Object containing phase and oracle details
+ */
 
 export const fetchMarketDetails = async (contract: ethers.Contract) => {
   try {
@@ -83,7 +82,9 @@ export const fetchMarketDetails = async (contract: ethers.Contract) => {
   }
 };
 
-// Di chuyển providerConfig ra ngoài component và thêm các cấu hình cần thiết
+/**
+ * Provider configuration for Ethereum interaction
+ */
 const providerConfig = {
   chainId: 31337,
   name: 'local',
@@ -93,7 +94,10 @@ const providerConfig = {
   staticNetwork: true
 };
 
-// Tạo hàm helper để lấy provider và signer
+/**
+ * Helper function to get Ethereum provider and signer
+ * @returns Object containing provider and signer
+ */
 const getProviderAndSigner = async () => {
   const provider = new ethers.providers.Web3Provider(window.ethereum, providerConfig);
   await provider.send("eth_requestAccounts", []); // Yêu cầu kết nối ví
@@ -101,53 +105,74 @@ const getProviderAndSigner = async () => {
   return { provider, signer };
 };
 
-// Thêm hàm helper để chuyển đổi UTC sang múi giờ Eastern
-const toETTime = (utcTimestamp) => {
-  return toZonedTime(new Date(utcTimestamp * 1000), 'America/New_York');
-};
 
-// Thêm hàm chuyển đổi trading pair sang chart symbol
+/**
+ * Helper function to convert trading pair to chart symbol format
+ * @param tradingPair - The trading pair string (e.g., "BTC/USD")
+ * @returns Formatted chart symbol (e.g., "BTC-USD")
+ */
 const getChartSymbolFromTradingPair = (tradingPair: string): string => {
   if (!tradingPair) return '';
   return tradingPair.replace('/', '-');
 };
 
+/**
+ * Main Customer component
+ * @param param0 - Component props including optional initial contract address
+ */
 function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
+  // Auth context and router
   const { isConnected, walletAddress, balance, connectWallet, refreshBalance } = useAuth();
+  const router = useRouter();
+
+  // Contract and market state
   const [selectedSide, setSelectedSide] = useState<Side | null>(null);
   const [contractBalance, setContractBalance] = useState(0);
-  const [accumulatedWinnings, setAccumulatedWinnings] = useState(0);
   const [bidAmount, setBidAmount] = useState("");
   const [currentPhase, setCurrentPhase] = useState<Phase>(Phase.Trading);
   const [totalDeposited, setTotalDeposited] = useState(0);
   const [strikePrice, setStrikePrice] = useState<string>('');
   const [finalPrice, setFinalPrice] = useState<string>('');
   const [showClaimButton, setShowClaimButton] = useState(false);
-  const [reward, setReward] = useState(0); // Số phần thưởng khi người chơi thắng
+  const [reward, setReward] = useState(0);
   const [contract, setContract] = useState<ethers.Contract | null>(null);
   const [positions, setPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
   const [contractAddress, setContractAddress] = useState(initialContractAddress || '');
+
+  // Price and chart data
   const [currentPrice, setCurrentPrice] = useState<number>(0);
   const [chartData, setChartData] = useState<any[]>([]);
+  const [chartSymbol, setChartSymbol] = useState('BTCUSDT');
+  const [tradingPair, setTradingPair] = useState('');
+
+  // Market phase flags
   const [canResolve, setCanResolve] = useState(false);
   const [canExpire, setCanExpire] = useState(false);
   const [marketResult, setMarketResult] = useState<string>('');
+
+  // User-related state
   const [userPosition, setUserPosition] = useState<Side | null>(null);
-  const [tradingPair, setTradingPair] = useState('');
-  const [chartSymbol, setChartSymbol] = useState('BTCUSDT');
+  const [userPositions, setUserPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
+  const [isOwner, setIsOwner] = useState(false);
+
+  // Time-related state
   const [biddingStartTime, setBiddingStartTime] = useState<number>(0);
   const [deployTime, setDeployTime] = useState<number>(0);
+  const [maturityTime, setMaturityTime] = useState<number>(0);
+  const [resolveTime, setResolveTime] = useState<number>(0);
+
+  // Position history and data
   const [positionHistory, setPositionHistory] = useState<PositionPoint[]>([]);
   const positionHistoryKey = useMemo(() => {
     return `positionHistory_${contractAddress}`;
   }, [contractAddress]);
-  const [biddingStartTimestamp, setBiddingStartTimestamp] = useState<number>(0);
-  const [maturityTime, setMaturityTime] = useState<number>(0);
-  const [oracleDetails, setOracleDetails] = useState<any>(null);
-  const [resolveTime, setResolveTime] = useState<number>(0);
   const [positionData, setPositionData] = useState<PositionData[]>([]);
-  const [userPositions, setUserPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
-  const [isOwner, setIsOwner] = useState(false);
+  const [enhancedPositionData, setEnhancedPositionData] = useState<PositionPoint[]>([]);
+
+  // Oracle details
+  const [oracleDetails, setOracleDetails] = useState<any>(null);
+
+  // UI state
   const [isResolving, setIsResolving] = useState(false);
   const [isExpiring, setIsExpiring] = useState(false);
   const [priceTimeRange, setPriceTimeRange] = useState<string>('1w');
@@ -157,34 +182,20 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const [potentialProfit, setPotentialProfit] = useState<string>("0.0000");
   const [profitPercentage, setProfitPercentage] = useState<number>(0);
   const [feePercentage, setFeePercentage] = useState<string>('0');
-  const router = useRouter();
   const [isLoadingContractData, setIsLoadingContractData] = useState<boolean>(true);
   const [isLoadingPositionHistory, setIsLoadingPositionHistory] = useState(true);
-  const [enhancedPositionData, setEnhancedPositionData] = useState<PositionPoint[]>([]);
-
-  // Thêm mapping từ contract address sang symbol Binance
-  const coinSymbols: CoinSymbol = {
-    "0x5fbdb2315678afecb367f032d93f642f64180aa3": "ICPUSDT",
-    "0x6fbdb2315678afecb367f032d93f642f64180aa3": "ETHUSDT",
-    "0x7fbdb2315678afecb367f032d93f642f64180aa3": "BTCUSDT"
-  };
-
-  // Sửa lại availableCoins để thêm thông tin symbol
-  const [availableCoins] = useState<Coin[]>([
-    { value: "0x5fbdb2315678afecb367f032d93f642f64180aa3", label: "ICP/USD" },
-    { value: "0x6fbdb2315678afecb367f032d93f642f64180aa3", label: "ETH/USD" },
-    { value: "0x7fbdb2315678afecb367f032d93f642f64180aa3", label: "BTC/USD" }
-  ]);
+  const [contractOwner, setContractOwner] = useState<string | null>(null);
+  const [showRules, setShowRules] = useState(false);
 
   const toast = useToast();
-  const priceControls = useAnimation();
 
+  /**
+ * Effect to initialize contract address from props or localStorage
+ */
   useEffect(() => {
-    // Nếu có initialContractAddress từ props, sử dụng nó
     if (initialContractAddress) {
       setContractAddress(initialContractAddress);
     }
-    // Nếu không, thử đọc từ localStorage
     else {
       const savedAddress = localStorage.getItem('selectedContractAddress');
       if (savedAddress) {
@@ -193,13 +204,18 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   }, [initialContractAddress]);
 
+  /**
+   * Effect to clean up localStorage when component unmounts
+   */
   useEffect(() => {
     return () => {
-      // Xóa địa chỉ khỏi localStorage khi rời khỏi trang
       localStorage.removeItem('selectedContractAddress');
     };
   }, []);
 
+  /**
+ * Effect to initialize contract when wallet is connected and address is available
+ */
   useEffect(() => {
     const initContract = async () => {
       if (isConnected && contractAddress) {
@@ -220,6 +236,9 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     initContract();
   }, [isConnected, contractAddress]);
 
+  /**
+   * Effect to fetch market details periodically
+   */
   useEffect(() => {
     const interval = setInterval(() => {
       if (contract) {
@@ -229,21 +248,26 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     return () => clearInterval(interval);
   }, [contract]);
 
+  /**
+   * Effect to fetch contract balance when contract address changes
+   */
   useEffect(() => {
     if (contractAddress) {
       fetchContractBalance();
     }
   }, [contractAddress]);
 
-  // Thêm useEffect để load position history khi contract address thay đổi
+  /**
+   * Effect to load position history when contract address changes
+   */
   useEffect(() => {
     if (contractAddress) {
-      // Load position history từ localStorage
+      // Load position history from localStorage
       const savedHistory = localStorage.getItem(positionHistoryKey);
       if (savedHistory) {
         setPositionHistory(JSON.parse(savedHistory));
       } else {
-        // Khởi tạo history mới nếu chưa có
+        // Initialize new history if not available
         setPositionHistory([{
           timestamp: Date.now(),
           longPercentage: 50,
@@ -255,13 +279,13 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   }, [contractAddress]);
 
-  // Thêm hàm chuyển đổi từ trading pair từ contract sang định dạng API
   const formatTradingPairForApi = (pair: string): string => {
-    // Ví dụ: "BTC/USD" -> "BTC-USD" cho Coinbase API
     return pair.replace('/', '-');
   };
 
-  // Sửa lại hàm fetchMarketDetails để lưu tradingPair và chartSymbol
+  /**
+   * Function to fetch market details and update state
+   */
   const fetchMarketDetails = async () => {
     if (!contract || !walletAddress) return;
     try {
@@ -295,26 +319,26 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         contract.feePercentage()
       ]);
 
-      // Lưu trading pair vào state
+      // Save trading pair to state
       setTradingPair(tradingPair);
 
-      // Định dạng trading pair cho API và lưu vào chartSymbol
+      // Format trading pair for API and save to chartSymbol
       const formattedSymbol = formatTradingPairForApi(tradingPair);
       setChartSymbol(formattedSymbol);
 
-      // Cập nhật tổng positions
+      // Update total positions
       setPositions({
         long: parseFloat(ethers.utils.formatEther(positions.long)),
         short: parseFloat(ethers.utils.formatEther(positions.short))
       });
 
-      // Cập nhật user positions từ mappings
+      // Update user positions from mappings
       setUserPositions({
         long: parseFloat(ethers.utils.formatEther(longPosition)),
         short: parseFloat(ethers.utils.formatEther(shortPosition))
       });
 
-      // Cập nhật userPosition dựa trên vị thế hiện tại
+      // Update userPosition based on current position
       if (parseFloat(ethers.utils.formatEther(longPosition)) > 0) {
         setUserPosition(Side.Long);
       } else if (parseFloat(ethers.utils.formatEther(shortPosition)) > 0) {
@@ -323,7 +347,10 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         setUserPosition(null);
       }
 
-      setStrikePrice(ethers.utils.formatUnits(strikePrice, 0));
+      // Update strikePrice - convert from integer (stored in blockchain) to float
+      const strikePriceInteger = ethers.utils.formatUnits(strikePrice, 0);
+      setStrikePrice((parseInt(strikePriceInteger) / STRIKE_PRICE_MULTIPLIER).toString());
+
       setMaturityTime(maturityTime.toNumber());
       setOracleDetails(oracleDetails);
       setTotalDeposited(parseFloat(ethers.utils.formatEther(totalDeposited)));
@@ -331,7 +358,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       setBiddingStartTime(Number(biddingStartTime));
       setResolveTime(Number(resolveTime));
       setFeePercentage(feePercentage.toString());
-      // Kiểm tra có thể resolve và expire
+      // Check if can resolve and expire
       const now = Math.floor(Date.now() / 1000);
       setCanResolve(phase === Phase.Bidding && now >= maturityTime.toNumber());
       setCanExpire(
@@ -340,7 +367,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         now >= resolveTime.toNumber() + 30
       );
 
-      // Lấy finalPrice từ oracleDetails khi ở phase Maturity hoặc Expiry
+      // Get finalPrice from oracleDetails when at phase Maturity or Expiry
       if (phase === Phase.Maturity || phase === Phase.Expiry) {
         setFinalPrice(oracleDetails.finalPrice.toString());
       }
@@ -350,18 +377,23 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   };
 
+  /**
+   * Function to fetch contract balance
+   */
   const fetchContractBalance = async () => {
     try {
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const contractBalanceWei = await provider.getBalance(contractAddress);
       const contractBalanceEth = parseFloat(ethers.utils.formatEther(contractBalanceWei));
-      setContractBalance(contractBalanceEth); // Cập nhật vào state
+      setContractBalance(contractBalanceEth); // Update state
     } catch (error) {
       console.error("Failed to fetch contract balance:", error);
     }
   };
 
-  // Thêm hàm kiểm tra kết quả market
+  /**
+   * Function to check market result
+   */
   const checkMarketResult = async () => {
     if (!contract) return;
 
@@ -380,7 +412,9 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   };
 
-  // Thêm useEffect để kiểm tra kết quả khi phase thay đổi
+  /**
+   * Effect to check market result when phase changes
+   */
   useEffect(() => {
     if (currentPhase === Phase.Maturity || currentPhase === Phase.Expiry) {
       checkMarketResult();
@@ -389,7 +423,9 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   }, [currentPhase, contract]);
 
-  // Sửa lại useEffect để kiểm tra thời gian
+  /**
+   * Effect to check timing when phase changes
+   */
   useEffect(() => {
     const checkTiming = async () => {
       if (!contract) return;
@@ -420,30 +456,10 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     return () => clearInterval(interval);
   }, [contract, currentPhase]);
 
-  // Thêm hàm để tính toán phần trăm
-  const calculatePercentages = (longAmount: number, shortAmount: number) => {
-    const total = longAmount + shortAmount;
-    if (total === 0) return { long: 50, short: 50 };
 
-    const longPercentage = (longAmount / total) * 100;
-    const shortPercentage = (shortAmount / total) * 100;
-    return { long: longPercentage, short: shortPercentage };
-  };
-
-  // Thêm hàm để tính toán các mốc thời gian
-  const calculateTimePoints = (deployTime: number, maturityTime: number) => {
-    const duration = maturityTime - deployTime;
-    const interval = Math.floor(duration / 10); // Chia làm 10 điểm
-    const timePoints = [];
-
-    for (let i = 0; i <= 10; i++) {
-      timePoints.push(deployTime + (interval * i));
-    }
-
-    return timePoints;
-  };
-
-  // Thêm hàm tạo các mốc thời gian
+  /**
+   * Function to create time points
+   */
   const createTimePoints = (startTime: number, endTime: number, numPoints: number = 20) => {
     const points: PositionData[] = [];
     const interval = Math.floor((endTime - startTime) / (numPoints - 1));
@@ -461,7 +477,9 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     return points;
   };
 
-  // Sửa lại phần xử lý position data trong component
+  /**
+   * Effect to handle position data in component
+   */
   useEffect(() => {
     if (!contract || currentPhase !== Phase.Bidding) return;
 
@@ -510,16 +528,16 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       }
     };
 
-    // Khởi tạo dữ liệu ban đầu
+    // Initialize initial data
     initializePositionData();
 
-    // Cập nhật dữ liệu mỗi giây
+    // Update data every second
     const interval = setInterval(updatePositionData, 1000);
     return () => clearInterval(interval);
   }, [contract, currentPhase, positions]);
 
 
-  // Hàm tính potential profit - sửa để xử lý bidAmount rỗng tốt hơn
+  // Function to calculate potential profit - improved to handle empty bidAmount
   const calculatePotentialProfit = useCallback((side: Side, amount: string) => {
     if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0 || !positions) {
       setPotentialProfit("0.0000");
@@ -531,47 +549,47 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     let potentialReturn = 0;
     let profitPercentage = 0;
 
-    // Tổng giá trị đặt cược hiện tại
+    // Total current bid amount
     const longAmount = positions.long;
     const shortAmount = positions.short;
     const totalBids = longAmount + shortAmount;
 
-    // Áp dụng phí
+    // Apply fee
     const feeAmount = bidAmountInEth * (Number(feePercentage) / 1000);
     const bidAmountAfterFee = bidAmountInEth - feeAmount;
 
     if (side === Side.Long) {
-      // Nếu chọn LONG
+      // If choose LONG
       const newLongAmount = longAmount + bidAmountInEth;
 
       if (shortAmount === 0) {
-        // Nếu chưa ai đặt SHORT, chỉ lấy lại tiền đặt cược sau khi trừ phí
+        // If no one bid SHORT, only get back bid amount after fee
         potentialReturn = bidAmountAfterFee;
-        profitPercentage = -1 * (Number(feePercentage) / 10); // Chỉ mất phí
+        profitPercentage = -1 * (Number(feePercentage) / 10); // Only lose fee
       } else {
-        // Tính toán tỷ lệ lợi nhuận dựa trên tỷ lệ LONG/SHORT
+        // Calculate profit percentage based on LONG/SHORT ratio
         const totalPool = totalBids + bidAmountInEth;
         const poolAfterFee = totalPool - feeAmount;
 
-        // Tỷ lệ thắng dựa vào số tiền đặt SHORT
+        // Win ratio based on SHORT amount
         const winRatio = shortAmount / newLongAmount;
         potentialReturn = bidAmountInEth + (bidAmountAfterFee * winRatio);
         profitPercentage = ((potentialReturn - bidAmountInEth) / bidAmountInEth) * 100;
       }
     } else {
-      // Nếu chọn SHORT
+      // If choose SHORT
       const newShortAmount = shortAmount + bidAmountInEth;
 
       if (longAmount === 0) {
-        // Nếu chưa ai đặt LONG, chỉ lấy lại tiền đặt cược sau khi trừ phí
+        // If no one bid LONG, only get back bid amount after fee
         potentialReturn = bidAmountAfterFee;
-        profitPercentage = -1 * (Number(feePercentage) / 10); // Chỉ mất phí
+        profitPercentage = -1 * (Number(feePercentage) / 10); // Only lose fee
       } else {
-        // Tính toán tỷ lệ lợi nhuận dựa trên tỷ lệ LONG/SHORT
+        // Calculate profit percentage based on LONG/SHORT ratio
         const totalPool = totalBids + bidAmountInEth;
         const poolAfterFee = totalPool - feeAmount;
 
-        // Tỷ lệ thắng dựa vào số tiền đặt LONG
+        // Win ratio based on LONG amount
         const winRatio = longAmount / newShortAmount;
         potentialReturn = bidAmountInEth + (bidAmountAfterFee * winRatio);
         profitPercentage = ((potentialReturn - bidAmountInEth) / bidAmountInEth) * 100;
@@ -582,20 +600,20 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     setProfitPercentage(profitPercentage);
   }, [positions, feePercentage]);
 
-  // Hàm xử lý khi chọn side (UP/DOWN)
+  // Function to handle side selection (UP/DOWN)
   const handleSelectSide = (side: Side) => {
     setSelectedSide(side);
     calculatePotentialProfit(side, bidAmount);
   };
 
-  // Xử lý khi thay đổi bid amount
+  // Effect to handle bid amount change
   useEffect(() => {
     if (selectedSide !== null && bidAmount) {
       calculatePotentialProfit(selectedSide, bidAmount);
     }
   }, [bidAmount, selectedSide, calculatePotentialProfit]);
 
-  // Sửa lại hàm handleBid để sử dụng selectedSide
+  // Improved handleBid function to use selectedSide
   const handleBid = async (side?: Side) => {
     const bidSide = side !== undefined ? side : selectedSide;
 
@@ -610,7 +628,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       return;
     }
 
-    // Kiểm tra bidAmount
+    // Check bidAmount
     if (!bidAmount || isNaN(parseFloat(bidAmount)) || parseFloat(bidAmount) <= 0) {
       toast({
         title: "Error",
@@ -631,7 +649,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
       const bidAmountWei = ethers.utils.parseEther(bidAmount);
 
-      // Gọi hàm bid của contract với signer
+      // Call bid function of contract with signer
       const tx = await contractWithSigner.bid(bidSide, {
         value: bidAmountWei,
         gasLimit: 500000
@@ -639,7 +657,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
       await tx.wait();
 
-      // Cập nhật UI sau khi bid thành công
+      // Update UI after bid success
       toast({
         title: "Bid placed successfully!",
         status: "success",
@@ -647,7 +665,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         isClosable: true,
       });
 
-      // Reset bid amount và refresh data
+      // Reset bid amount and refresh data
       await refreshBalance();
       await fetchMarketDetails();
       resetBettingForm();
@@ -670,37 +688,37 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     try {
 
 
-      // Kiểm tra xem đã claim chưa
+      // Check if already claimed
       const hasClaimed = await contract.hasClaimed(walletAddress);
       console.log("Has claimed:", hasClaimed);
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
-      const contractWithSigner = contract.connect(signer);  // Kết nối contract với signer
+      const contractWithSigner = contract.connect(signer);
 
-      // Lấy thông tin oracle
+      // Get oracle details
       const oracleDetails = await contract.oracleDetails();
       const finalPrice = parseFloat(oracleDetails.finalPrice);
       const strikePrice = parseFloat(oracleDetails.strikePrice);
       console.log("Prices:", { finalPrice, strikePrice });
 
-      // Sửa lại logic: finalPrice < strikePrice thì SHORT win
+      // Improved logic: finalPrice < strikePrice then SHORT win
       const winningSide = finalPrice < strikePrice ? Side.Short : Side.Long;
       console.log("Winning side:", winningSide);
 
-      // Kiểm tra số tiền đặt cược của user
+      // Check user's deposit
       const userDeposit = winningSide === Side.Long ?
         await contract.longBids(walletAddress) :
         await contract.shortBids(walletAddress);
       console.log("User deposit:", userDeposit.toString());
 
-      // Hiển thị nút claim nếu:
-      // 1. Chưa claim
-      // 2. Có đặt cược ở bên thắng
-      // 3. Đang ở phase Expiry
+      // Show claim button if:
+      // 1. Not claimed yet
+      // 2. Has deposit on winning side
+      // 3. Currently in Expiry phase
       if (!hasClaimed && userDeposit.gt(0) && currentPhase === Phase.Expiry) {
         setShowClaimButton(true);
 
-        // Tính toán reward
+        // Calculate reward
         const positions = await contract.positions();
         const totalWinningDeposits = winningSide === Side.Long ? positions.long : positions.short;
         const totalDeposited = positions.long.add(positions.short);
@@ -720,26 +738,45 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   }, [contract, currentPhase, walletAddress]);
 
-  // Thêm useEffect để check claim eligibility
+  // Effect to check claim eligibility
   useEffect(() => {
     if (currentPhase === Phase.Expiry) {
       canClaimReward();
     }
   }, [currentPhase, canClaimReward]);
 
-  // Reset lại thị trường
-  const resetMarket = () => {
-    setPositions({ long: 0, short: 0 });
-    setTotalDeposited(0);
-    setStrikePrice('0');
-    setFinalPrice('0');
-    setCurrentPhase(Phase.Bidding);
-    priceControls.set({ opacity: 1, color: "#FEDF56" });
-  };
 
+  const startBidding = async () => {
+    try {
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const signer = provider.getSigner();
+      const contract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, signer);
 
-  const abbreviateAddress = (address: string) => {
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+      const tx = await contract.startBidding();
+      await tx.wait();
+
+      // Update phase after transaction success
+      await fetchMarketDetails();
+
+      // Update UI immediately
+      setCurrentPhase(Phase.Bidding);
+
+      toast({
+        title: "Bidding phase started!",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (error: any) {
+      console.error("Failed to start bidding:", error);
+      toast({
+        title: "Failed to start bidding",
+        description: error.message,
+        status: "error",
+        duration: 5000,
+        isClosable: true,
+      });
+    }
   };
 
   useEffect(() => {
@@ -758,7 +795,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     };
   }, []);
 
-  // Sửa lại useEffect cho price history
+  // Improved useEffect for price history
   useEffect(() => {
     const fetchPriceHistory = async () => {
       try {
@@ -776,9 +813,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     return () => clearInterval(interval);
   }, [chartSymbol]);
 
-  // Thêm hàm xử lý resolve và expire
-
-
+  // Add handleExpireMarket function
   const handleExpireMarket = async () => {
     if (!contract) return;
     try {
@@ -787,7 +822,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       const signer = provider.getSigner();
       const contractWithSigner = contract.connect(signer);
 
-      // Hiển thị thông báo đang xử lý
+      // Show processing message
       toast({
         title: "Expiring market...",
         description: "Please wait while the transaction is being processed",
@@ -802,7 +837,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
       console.log("Transaction sent:", tx.hash);
 
-      // Hiển thị thông báo transaction đã được gửi
+      // Show transaction sent message
       toast({
         title: "Transaction sent",
         description: `Transaction hash: ${tx.hash.substring(0, 10)}...`,
@@ -813,7 +848,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
       await tx.wait();
 
-      // Hiển thị thông báo thành công
+      // Show success message
       toast({
         title: "Market expired successfully!",
         status: "success",
@@ -824,7 +859,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       // Refresh market details
       await fetchMarketDetails();
 
-      // Cập nhật UI ngay lập tức
+      // Update UI immediately
       setCurrentPhase(Phase.Expiry);
       setCanExpire(false);
 
@@ -855,7 +890,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
           provider
         );
 
-        // Lấy tất cả thông tin cần thiết từ contract
+        // Get all necessary data from contract
         try {
           const [
             positions,
@@ -875,21 +910,25 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
             contract.feePercentage()
           ]);
 
-          // Cập nhật states
+          // Update states
           setContract(contract);
           setContractAddress(contractAddress);
-          setStrikePrice(ethers.utils.formatUnits(strikePriceBN, 0));
+          // Get strikePrice
+          const strikePriceInteger = await contract.strikePrice();
+          // Convert from integer (BigNumber) to float for display
+          const strikePriceFormatted = (parseInt(strikePriceInteger.toString()) / STRIKE_PRICE_MULTIPLIER).toFixed(2);
+          setStrikePrice(strikePriceFormatted);
           setCurrentPhase(phase);
           setTradingPair(tradingPair);
           setBiddingStartTime(biddingStartTime.toNumber());
           setDeployTime(deployTimestamp.toNumber());
-          // Set chart symbol dựa trên trading pair
+          // Set chart symbol based on trading pair
           const symbol = tradingPair === "BTC/USD" ? "BTCUSDT" :
             tradingPair === "ETH/USD" ? "ETHUSDT" :
               tradingPair === "ICP/USD" ? "ICPUSDT" : "BTCUSDT";
           setChartSymbol(symbol);
           console.log("Chart symbol:", symbol);
-          // Cập nhật positions
+          // Update positions
           setPositions({
             long: parseFloat(ethers.utils.formatEther(positions.long)),
             short: parseFloat(ethers.utils.formatEther(positions.short))
@@ -897,7 +936,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
         } catch (error) {
           console.error("Error loading contract data:", error);
-          // Set default values nếu có lỗi
+          // Set default values if there's an error
           setTradingPair('Unknown');
           //setChartSymbol('BTCUSDT');
         }
@@ -910,7 +949,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     loadContractData();
   }, []);
 
-  // Sửa lại useEffect cho price chart
+  // Improved useEffect for price chart
   useEffect(() => {
     const fetchPriceHistory = async () => {
       try {
@@ -929,14 +968,34 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   }, [chartSymbol]);
 
   // Add near other state declarations
-  const phaseCircleProps = (phase: Phase) => ({
-    bg: currentPhase === phase ? "#FEDF56" : "gray.700",
-    color: currentPhase === phase ? "black" : "gray.500",
-    fontWeight: "bold",
-    zIndex: 1
-  });
+  const phaseCircleProps = (phase: Phase) => {
+    // Get the color based on the phase
+    const getPhaseColor = (phase: Phase) => {
+      switch (phase) {
+        case Phase.Trading:
+          return "green.400";
+        case Phase.Bidding:
+          return "blue.400";
+        case Phase.Maturity:
+          return "orange.400";
+        case Phase.Expiry:
+          return "red.400";
+        default:
+          return "gray.400";
+      }
+    };
 
-  // Thêm hàm resolve
+    // Use the phase-specific color if it's the current phase,
+    // otherwise use a dimmer version
+    return {
+      bg: currentPhase === phase ? getPhaseColor(phase) : "gray.700",
+      color: currentPhase === phase ? "black" : "gray.500",
+      fontWeight: "bold",
+      zIndex: 1
+    };
+  };
+
+  // resolve market
   const resolve = async () => {
     if (!contract) return;
 
@@ -946,7 +1005,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       const signer = provider.getSigner();
       const contractWithSigner = contract.connect(signer);
 
-      // Hiển thị thông báo đang xử lý
+      // Show processing message
       toast({
         title: "Resolving market...",
         description: "Please wait while the transaction is being processed",
@@ -961,7 +1020,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
       console.log("Transaction sent:", tx.hash);
 
-      // Hiển thị thông báo transaction đã được gửi
+      // Show transaction sent message
       toast({
         title: "Transaction sent",
         description: `Transaction hash: ${tx.hash.substring(0, 10)}...`,
@@ -972,7 +1031,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
       await tx.wait();
 
-      // Hiển thị thông báo thành công
+      // Show success message
       toast({
         title: "Market resolved successfully!",
         status: "success",
@@ -983,7 +1042,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       // Refresh market details
       await fetchMarketDetails();
 
-      // Cập nhật UI ngay lập tức
+      // Update UI immediately
       setCurrentPhase(Phase.Maturity);
       setCanResolve(false);
 
@@ -1001,17 +1060,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   };
 
-  // Thêm cleanup khi component unmount
-  // useEffect(() => {
-  //   return () => {
-  //     if (contractAddress) {
-  //       // Lưu position history cuối cùng vào localStorage
-  //       localStorage.setItem(positionHistoryKey, JSON.stringify(positionHistory));
-  //     }
-  //   };
-  // }, [contractAddress, positionHistory]);
-
-  // Thêm lại hàm claimReward
+  // claim reward
   const claimReward = async () => {
     if (!contract || currentPhase !== Phase.Expiry) return;
 
@@ -1051,30 +1100,30 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   };
 
-  // Sửa lại hàm fetchPositionHistory
+  // Improved fetchPositionHistory
   const fetchPositionHistory = useCallback(async () => {
     if (!contract) return [];
 
     setIsLoadingPositionHistory(true);
 
     try {
-      // Lấy block hiện tại
+      // Get current block
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const currentBlock = await provider.getBlockNumber();
 
-      // Lấy tất cả PositionUpdated events từ block 0 đến block hiện tại
+      // Get all PositionUpdated events from block 0 to current block
       const events = await contract.queryFilter(
         contract.filters.PositionUpdated(),
         0,
         currentBlock
       );
 
-      // Sắp xếp events theo thời gian
+      // Sort events by time
       const sortedEvents = events.sort((a, b) =>
         a.args.timestamp.toNumber() - b.args.timestamp.toNumber()
       );
 
-      // Chuyển đổi thành định dạng cho biểu đồ
+      // Convert to format for chart
       const positionPoints = sortedEvents.map(event => {
         const timestamp = event.args.timestamp.toNumber();
         const longAmount = parseFloat(ethers.utils.formatEther(event.args.longAmount));
@@ -1098,7 +1147,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         };
       });
 
-      // Thêm điểm ban đầu nếu cần
+      // Add initial point if needed
       if (positionPoints.length === 0 && biddingStartTime) {
         positionPoints.push({
           timestamp: biddingStartTime,
@@ -1118,21 +1167,21 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   }, [contract, biddingStartTime]);
 
-  // Cập nhật useEffect để lấy position history từ on-chain
+  // Improved useEffect to get position history from on-chain
   useEffect(() => {
     if (contract && currentPhase >= Phase.Bidding) {
       fetchPositionHistory().then(history => {
         if (history.length > 0) {
           setPositionHistory(history);
         } else if (biddingStartTime) {
-          // Fallback nếu không có dữ liệu
+          // Fallback if no data
           setPositionHistory(createInitialPositionHistory(biddingStartTime));
         }
       });
     }
   }, [contract, currentPhase, biddingStartTime, fetchPositionHistory]);
 
-  // Thêm event listener cho PositionUpdated events realtime
+  // Add event listener for PositionUpdated events realtime
   useEffect(() => {
     if (!contract || currentPhase < Phase.Bidding) return;
 
@@ -1150,15 +1199,15 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         shortPercentage = (shortAmt / total) * 100;
       }
 
-      // Cập nhật positionHistory với điểm mới
+      // Update positionHistory with new point
       setPositionHistory(prev => {
-        // Cập nhật isCurrentPoint cho tất cả các điểm
+        // Update isCurrentPoint for all points
         const updatedHistory = prev.map(point => ({
           ...point,
           isCurrentPoint: false
         }));
 
-        // Thêm điểm mới
+        // Add new point
         const newPoint = {
           timestamp: ts,
           longPercentage,
@@ -1171,34 +1220,29 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         return [...updatedHistory, newPoint];
       });
 
-      // Cập nhật positions state
+      // Update positions state
       setPositions({
         long: longAmt,
         short: shortAmt
       });
     };
 
-    // Đăng ký event listener
+    // Register event listener
     contract.on("PositionUpdated", handlePositionUpdate);
 
-    // Cleanup khi component unmount
+    // Cleanup when component unmounts
     return () => {
       contract.off("PositionUpdated", handlePositionUpdate);
     };
   }, [contract, currentPhase]);
 
-  // Loại bỏ useEffect này vì không cần lưu vào localStorage nữa
-  // useEffect(() => {
-  //   if (!positions || !currentPhase || currentPhase < Phase.Bidding) return;
-  //   // ... code cũ để cập nhật localStorage ...
-  // }, [positions, currentPhase]);
 
-  // Thêm hàm kiểm tra quyền hạn
+  // check permission
   const checkPermissions = async () => {
     if (!contract || !walletAddress) return;
 
     try {
-      // Kiểm tra xem contract có hàm owner() không
+      // check if contract has owner() function
       let owner;
       try {
         owner = await contract.owner();
@@ -1210,18 +1254,18 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         console.log("Contract does not have owner() function or error occurred:", e);
       }
 
-      // Kiểm tra xem có thể gọi hàm resolveMarket không
+      // check if can call resolveMarket function
       try {
-        // Chỉ kiểm tra xem hàm có tồn tại không, không thực sự gọi nó
+        // check if function exists, not actually call it
         const resolveFunction = contract.resolveMarket;
         console.log("resolveMarket function exists:", !!resolveFunction);
       } catch (e) {
         console.log("Error checking resolveMarket function:", e);
       }
 
-      // Kiểm tra xem có thể gọi hàm expireMarket không
+      // check if can call expireMarket function
       try {
-        // Chỉ kiểm tra xem hàm có tồn tại không, không thực sự gọi nó
+        // check if function exists, not actually call it
         const expireFunction = contract.expireMarket;
         console.log("expireMarket function exists:", !!expireFunction);
       } catch (e) {
@@ -1232,7 +1276,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   };
 
-  // Gọi hàm kiểm tra quyền hạn khi component mount
+  // check permission when component mount
   useEffect(() => {
     if (contract && walletAddress) {
       checkPermissions();
@@ -1246,9 +1290,9 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   };
 
 
-  // Thay thế logic kiểm tra phase dựa trên thời gian
+  // replace logic check phase based on time
   useEffect(() => {
-    // Kiểm tra và cập nhật phase dựa trên thời gian hiện tại
+    // check and update phase based on current time
     const checkPhaseBasedOnTime = () => {
       const now = getCurrentTimestamp();
 
@@ -1278,11 +1322,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   }, [positions]);
 
 
-  // Format date functions
-  const formatDate = (date: Date): string => {
-    return format(date, 'MMM dd, yyyy HH:mm');
-  };
-
   const formatMaturityTime = (timestamp: number): string => {
     if (!timestamp) return 'Pending';
     return format(new Date(timestamp * 1000), 'MMM dd, yyyy HH:mm');
@@ -1296,10 +1335,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       setPositionTimeRange(range);
     }
   };
-
-
-
-
   // Handle resolve market
   const handleResolveMarket = async () => {
     if (!contract) return;
@@ -1331,19 +1366,19 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   };
 
-  // Gọi hàm calculatePotentialProfit khi người dùng nhập ETH
+  // call calculatePotentialProfit when user input ETH
   const handleBidAmountChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
     setBidAmount(value);
 
-    // Tính toán pot.profit
+    // calculate potential profit
     const numValue = parseFloat(value);
     calculatePotentialProfit(selectedSide, value);
   };
 
-  // Thêm useEffect để tải dữ liệu từ localStorage khi component mount
+  // load contract data from localStorage when component mount
   useEffect(() => {
-    // Kiểm tra xem có dữ liệu contract trong localStorage không
+    // check if contract data in localStorage
     const cachedData = localStorage.getItem('contractData');
 
     if (cachedData) {
@@ -1352,23 +1387,23 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         const timestamp = parsedData.timestamp || 0;
         const now = Date.now();
 
-        // Chỉ sử dụng dữ liệu cache nếu nó được lưu trong vòng 5 phút
+        // only use cache data if it was saved in the last 5 minutes
         if (now - timestamp < 5 * 60 * 1000) {
           console.log("Using cached contract data");
 
-          // Cập nhật trading pair và chart symbol
+          // update trading pair and chart symbol
           if (parsedData.tradingPair) {
             setTradingPair(parsedData.tradingPair);
             const formattedSymbol = getChartSymbolFromTradingPair(parsedData.tradingPair);
             setChartSymbol(formattedSymbol);
           }
 
-          // Cập nhật state từ dữ liệu cache
+          // update state from cache data
           setStrikePrice(parsedData.strikePrice.toString());
           setMaturityTime(parseInt(parsedData.maturityTime));
           setCurrentPhase(parseInt(parsedData.phase));
 
-          // Cập nhật positions nếu có
+          // update positions if have
           if (parsedData.longAmount && parsedData.shortAmount) {
             setPositions({
               long: parseFloat(parsedData.longAmount),
@@ -1376,7 +1411,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
             });
           }
 
-          // Đánh dấu là đã tải xong dữ liệu ban đầu
+          // mark as loaded initial data
           setIsLoadingContractData(false);
         }
       } catch (error) {
@@ -1385,20 +1420,20 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   }, []);
 
-  // Sửa useEffect để tải dữ liệu contract từ blockchain
+  // load contract data from blockchain
   useEffect(() => {
     const fetchContractData = async () => {
       if (!contract) return;
 
       try {
-        // Nếu đã có dữ liệu từ cache, đánh dấu là đang tải dữ liệu mới trong nền
+        // if have data from cache, mark as loading new data in background
         const isBackgroundUpdate = !isLoadingContractData;
 
         if (!isBackgroundUpdate) {
           setIsLoadingContractData(true);
         }
 
-        // Tải tất cả dữ liệu cần thiết song song
+        // load all needed data in parallel
         const [
           strikePriceResult,
           maturityTimeResult,
@@ -1417,7 +1452,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
           contract.positions()
         ]);
 
-        // Xử lý kết quả
+        // process result
         const strikePrice = parseFloat(ethers.utils.formatEther(strikePriceResult));
         const maturityTime = maturityTimeResult.toNumber();
         const tradingPair = tradingPairResult;
@@ -1425,7 +1460,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         const biddingStartTime = biddingStartTimeResult.toNumber();
         const feePercentage = feePercentageResult.toNumber();
 
-        // Cập nhật state
+        // update state
         setStrikePrice(strikePrice.toString());
         setMaturityTime(maturityTime);
         setTradingPair(tradingPair);
@@ -1433,13 +1468,13 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         setBiddingStartTime(biddingStartTime);
         setFeePercentage(feePercentage);
 
-        // Cập nhật positions
+        // update positions
         setPositions({
           long: parseFloat(ethers.utils.formatEther(positionsResult.long)),
           short: parseFloat(ethers.utils.formatEther(positionsResult.short))
         });
 
-        // Lưu dữ liệu mới vào localStorage để sử dụng sau này
+        // save new data to localStorage for future use
         localStorage.setItem('contractData', JSON.stringify({
           address: contract.address,
           strikePrice: strikePrice.toString(),
@@ -1469,15 +1504,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     fetchContractData();
   }, [contract]);
 
-  // Thêm skeleton UI cho các thông tin đang tải
-  const renderLoadingState = () => (
-    <Box>
-      <Skeleton height="50px" width="80%" my={2} />
-      <Skeleton height="30px" width="60%" my={2} />
-      <Skeleton height="30px" width="70%" my={2} />
-    </Box>
-  );
-
   // Add this function to reset the betting form
   const resetBettingForm = () => {
     setSelectedSide(null);
@@ -1485,6 +1511,33 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     setPotentialProfit(0);
     setProfitPercentage(0);
   };
+
+  // check owner
+  const checkOwner = async () => {
+    try {
+      if (!contract) return;
+
+      const ownerAddress = await contract.owner();
+      setContractOwner(ownerAddress);
+
+      // check if current wallet address is owner
+      if (walletAddress) {
+        setIsOwner(walletAddress.toLowerCase() === ownerAddress.toLowerCase());
+      } else {
+        setIsOwner(false);
+      }
+    } catch (error) {
+      console.error("Error checking owner:", error);
+      setIsOwner(false);
+    }
+  };
+
+  // check owner when contract or walletAddress changes
+  useEffect(() => {
+    if (contract && walletAddress) {
+      checkOwner();
+    }
+  }, [contract, walletAddress]);
 
   return (
     <Box bg="black" minH="100vh">
@@ -1509,10 +1562,10 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         </HStack>
       </Flex>
 
-      {/* Dòng thứ hai - Thông tin về thị trường */}
+      {/* Second line - Market Info */}
       <Box display="flex" alignItems="center" mb={6} ml={6}>
         <HStack>
-          {/* Hình ảnh Coin */}
+          {/* Coin Image */}
           {isLoadingContractData ? (
             <Skeleton boxSize="50px" mr={4} />
           ) : (
@@ -1633,28 +1686,74 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
           </Tabs>
 
           <Box mt={8} border="1px solid #2D3748" borderRadius="xl" p={4}>
-            <Heading size="md" mb={4} color="#F0F8FF">Rules:</Heading>
-            <Text color="gray.400" mb={3}>
-              This is a binary option market where users can place bids on whether the price will be above (LONG) or below (SHORT) the strike price: {strikePrice} USD at maturity. The market goes through four phases: Trading, Bidding, Maturity, and Expiry.
-            </Text>
-            <Text color="gray.400" mb={3}>
-              During the Trading phase, users can view the market but cannot place bids. In the Bidding phase, users can place LONG or SHORT bids. At Maturity, the final price is determined and winners can claim their rewards. In the Expiry phase, the market is closed and all rewards are distributed.
-            </Text>
-            <Text color="gray.400" mb={3}>
-              The potential profit depends on the ratio of LONG to SHORT bids. If more users bet against you, your potential profit increases. A fee of {Number(feePercentage) / 10}% is charged on all bids to maintain the platform.
-            </Text>
-            <Text color="gray.400">
-              Price data is sourced from cryptocurrency exchanges to ensure accurate and reliable market prices.
-            </Text>
-            <Box display="flex" alignItems="center" fontSize="lg">
-              <Text color="white">Learn more at</Text>
-              <Image src="/images/coinbase.png" alt="Coinbase" boxSize="15px" display="inline" mx={1} />
-              <Link href="https://www.coinbase.com/explore" isExternal color="blue.400" display="flex" alignItems="center">
-                Coinbase
-                <FaExternalLinkAlt style={{ marginLeft: '5px', fontSize: '12px', verticalAlign: 'middle' }} />
-              </Link>
-            </Box>
+            <Flex justify="space-between" align="center" onClick={() => setShowRules(!showRules)} cursor="pointer">
+              <Heading size="md" color="#F0F8FF" fontSize="25px">Rules</Heading>
+              <Icon as={showRules ? ChevronUpIcon : ChevronDownIcon} color="gray.400" boxSize="30px" />
+            </Flex>
 
+            {showRules && (
+              <Box mt={4}>
+                <Text color="gray.400" mb={3}>
+                  This is a binary option market where users can place bids on whether the price of {tradingPair} will be above (LONG) or below (SHORT) the strike price: {strikePrice} USD at maturity.
+                </Text>
+
+                <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Market Phases:</Text>
+                <UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
+                  <ListItem><strong>Trading Phase:</strong> The market is visible but not yet open for bidding.</ListItem>
+                  <ListItem><strong>Bidding Phase:</strong> Users can place LONG/SHORT bids with ETH.</ListItem>
+                  <ListItem><strong>Maturity Phase:</strong> The final price is determined and the market outcome is resolved.</ListItem>
+                  <ListItem><strong>Expiry Phase:</strong> Winners can claim rewards proportional to their bid amount.</ListItem>
+                </UnorderedList>
+
+                <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Yes/No Criteria:</Text>
+                <UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
+                  <ListItem>Resolves to <strong>"Yes"</strong> (LONG wins) if the final price is strictly above {strikePrice} USD at maturity time.</ListItem>
+                  <ListItem>Resolves to <strong>"No"</strong> (SHORT wins) if the final price is {strikePrice} USD or below at maturity time.</ListItem>
+                </UnorderedList>
+
+                <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Resolution:</Text>
+                <UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
+                  <ListItem>We will use the Orally oracle price feed at the exact maturity time: {new Date(maturityTime * 1000).toLocaleString()}.</ListItem>
+                  <ListItem>Specifically, we will look at the closing USD value of {tradingPair} at that exact minute.</ListItem>
+                  <ListItem>If the price is strictly above {strikePrice} USD, the market resolves as <strong>"Yes"</strong>. Otherwise, it resolves as <strong>"No"</strong>.</ListItem>
+                </UnorderedList>
+
+                <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Profit Calculation:</Text>
+                <Text color="gray.400" mb={3}>
+                  Your potential profit depends on the ratio between LONG and SHORT bids. If most users bet against your position, your potential profit increases. A fee of {Number(feePercentage) / 10}% is charged on winning positions.
+                </Text>
+
+                <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Cancellation (Invalidity) Conditions:</Text>
+                <UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
+                  <ListItem>If the price feed is unavailable at the resolution time.</ListItem>
+                  <ListItem>If market data is not available at the resolution time.</ListItem>
+                  <ListItem>Any other circumstance that makes resolution impossible or unreliable.</ListItem>
+                </UnorderedList>
+                <Text color="gray.400" mb={4}>
+                  If the market is canceled, participants can withdraw their full bid amount without any fees.
+                </Text>
+
+                {/* Resolution Source Box */}
+                <Box
+                  mt={4}
+                  p={3}
+                  //bg="gray.800"
+                  borderRadius="md"
+                  border="1px solid"
+                  borderColor="gray.700"
+                >
+                  <Flex align="center" fontSize="25px" fontWeight="bold">
+                    <Image src="/images/coinbase.png" alt="Coinbase" boxSize="50px" display="inline" mx={1} borderRadius="full" mr={6} />
+                    <Box>
+                      <Text color="gray.400" fontSize="lg">Resolution Source</Text>
+                      <Link color="blue.400" href="https://www.coinbase.com" isExternal>
+                        Coinbase
+                      </Link>
+                    </Box>
+                  </Flex>
+                </Box>
+              </Box>
+            )}
           </Box>
         </Box>
 
@@ -1710,7 +1809,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
             borderWidth={1}
             borderColor="gray.700"
           >
-            {/* Tỷ lệ LONG/SHORT */}
+            {/* LONG/SHORT Ratio */}
             <Flex
               align="center"
               w="100%"
@@ -1908,39 +2007,37 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
           {/* Market Timeline */}
           <Box
-            bg="#21201d" // Màu nền cho box lớn
+            bg="#222530"
             p={4}
-            borderRadius="xl"
             borderWidth={1}
             borderColor="gray.700"
             borderRadius="30px"
             boxShadow="md"
-            position="relative" // Để cho box con có thể đè lên
+            position="relative"
             height="282px"
           >
-            <Text fontSize="lg" fontWeight="bold" mb={4} color="#060688" textAlign="center">
+            <Text fontSize="lg" fontWeight="bold" mb={4} color="#gray.600" textAlign="center">
               Market is Live
             </Text>
 
             <Box
-              bg="gray.800" // Màu nền cho box chứa các phase
+              bg="#0B0E16"
               p={4}
-              borderRadius="xl"
               borderWidth={1}
               borderColor="gray.700"
               borderRadius="30px"
-              position="absolute" // Để box này đè lên box lớn
-              top="55px" // Đặt vị trí để không che tiêu đề
+              position="absolute"
+              top="55px"
               left="0"
               right="0"
-              zIndex={1} // Đảm bảo box này nằm trên cùng
+              zIndex={1}
 
             >
               <VStack align="stretch" spacing={3} position="relative">
                 {/* Vertical Line */}
                 <Box
                   position="absolute"
-                  left="12px"
+                  left="16px"
                   top="30px"
                   bottom="20px"
                   width="2px"
@@ -1950,22 +2047,38 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
                 {/* Trading Phase */}
                 <HStack spacing={4}>
-                  <Circle size="25px" {...phaseCircleProps(Phase.Trading)}>1</Circle>
-                  <VStack align="start" spacing={0}>
-                    <Text fontSize="sm" color={currentPhase === Phase.Trading ? "#FEDF56" : "gray.500"}>
+                  <Circle size="35px" bg="green.400" color="green.400" {...phaseCircleProps(Phase.Trading)}>1</Circle>
+                  <VStack align="start" spacing={0} fontWeight="bold">
+                    <Text fontSize="lg" color={currentPhase === Phase.Trading ? "green.400" : "gray.500"} >
                       Trading
                     </Text>
                     <Text fontSize="xs" color="gray.500">
                       {deployTime ? new Date(deployTime * 1000).toLocaleString() : 'Pending'}
                     </Text>
                   </VStack>
+                  <Spacer />
+                  {currentPhase === Phase.Trading && isOwner && (
+                    <Button
+                      onClick={startBidding}
+                      size="sm"
+                      colorScheme="yellow"
+                      bg="#FEDF56"
+                      color="black"
+                      _hover={{ bg: "#FFE56B" }}
+                      alignItems="center"
+                      justifyContent="center"
+                      width="35%"
+                    >
+                      Start Bidding
+                    </Button>
+                  )}
                 </HStack>
 
                 {/* Bidding Phase */}
                 <HStack spacing={4}>
-                  <Circle size="25px" {...phaseCircleProps(Phase.Bidding)}>2</Circle>
-                  <VStack align="start" spacing={0}>
-                    <Text fontSize="sm" color={currentPhase === Phase.Bidding ? "#FEDF56" : "gray.500"}>
+                  <Circle size="35px" {...phaseCircleProps(Phase.Bidding)}>2</Circle>
+                  <VStack align="start" spacing={0} fontWeight="bold">
+                    <Text fontSize="lg" color={currentPhase === Phase.Bidding ? "blue.400" : "gray.500"}>
                       Bidding
                     </Text>
                     <Text fontSize="xs" color="gray.500">
@@ -1977,9 +2090,9 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                 {/* Maturity Phase with Resolve Button */}
                 <HStack spacing={4} justify="space-between">
                   <HStack spacing={4}>
-                    <Circle size="25px" {...phaseCircleProps(Phase.Maturity)}>3</Circle>
-                    <VStack align="start" spacing={0}>
-                      <Text fontSize="sm" color={currentPhase === Phase.Maturity ? "#FEDF56" : "gray.500"}>
+                    <Circle size="35px" {...phaseCircleProps(Phase.Maturity)}>3</Circle>
+                    <VStack align="start" spacing={0} fontWeight="bold">
+                      <Text fontSize="lg" color={currentPhase === Phase.Maturity ? "orange.400" : "gray.500"}>
                         Maturity
                       </Text>
                       <Text fontSize="xs" color="gray.500">
@@ -1987,8 +2100,8 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                       </Text>
                     </VStack>
                   </HStack>
-
-                  {/* Resolve Button - Hiển thị khi canResolve = true */}
+                  <Spacer />
+                  {/* Resolve Button - Show when canResolve = true */}
                   {canResolve && !isResolving && (
                     <Button
                       onClick={() => {
@@ -2002,6 +2115,9 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                       _hover={{ bg: "#FFE56B" }}
                       isLoading={isResolving}
                       loadingText="Resolving"
+                      alignItems="center"
+                      justifyContent="center"
+                      width="35%"
                     >
                       Resolve
                     </Button>
@@ -2011,9 +2127,9 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                 {/* Expiry Phase */}
                 <HStack spacing={4} justify="space-between">
                   <HStack spacing={4}>
-                    <Circle size="25px" {...phaseCircleProps(Phase.Expiry)}>4</Circle>
-                    <VStack align="start" spacing={0}>
-                      <Text fontSize="sm" color={currentPhase === Phase.Expiry ? "#FEDF56" : "gray.500"}>
+                    <Circle size="35px" {...phaseCircleProps(Phase.Expiry)}>4</Circle>
+                    <VStack align="start" spacing={0} fontWeight="bold">
+                      <Text fontSize="lg" color={currentPhase === Phase.Expiry ? "red.400" : "gray.500"}>
                         Expiry
                       </Text>
                       <Text fontSize="xs" color="gray.500">
@@ -2021,9 +2137,9 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                       </Text>
                     </VStack>
                   </HStack>
-
-                  {/* Expire Button - Hiển thị khi ở phase Maturity và đã resolve */}
-                  {currentPhase === Phase.Maturity && finalPrice && (
+                  <Spacer />
+                  {/* Expire Button - Show when ở phase Maturity and resolved */}
+                  {currentPhase === Phase.Maturity && finalPrice && isOwner && (
                     <Button
                       onClick={handleExpireMarket}
                       size="sm"
@@ -2033,6 +2149,9 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                       _hover={{ bg: "#FFE56B" }}
                       isLoading={isExpiringMarket}
                       loadingText="Expiring"
+                      alignItems="center"
+                      justifyContent="center"
+                      width="35%"
                     >
                       Expire
                     </Button>
@@ -2041,7 +2160,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               </VStack>
             </Box>
 
-            {/* Claim Button - Hiển thị khi có reward và ở phase Expiry */}
+            {/* Claim Button - Show when have reward and ở phase Expiry */}
             {reward > 0 && currentPhase === Phase.Expiry && (
               <Button
                 onClick={claimReward}
@@ -2057,7 +2176,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               </Button>
             )}
           </Box>
-
         </Box>
       </Flex>
     </Box>

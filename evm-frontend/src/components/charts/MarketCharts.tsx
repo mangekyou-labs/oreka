@@ -3,6 +3,7 @@ import { Box, Tabs, TabList, TabPanels, Tab, TabPanel, HStack, Button, Text, But
 import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine, Area, AreaChart } from 'recharts';
 import { PriceService } from '../../services/PriceService';
 import { format, addDays, subDays } from 'date-fns';
+import { STRIKE_PRICE_MULTIPLIER } from '../../utils/constants';
 
 
 interface Position {
@@ -35,6 +36,21 @@ interface MarketChartsProps {
   maturityTime: number;
 }
 
+/**
+ * MarketCharts Component
+ * Renders interactive charts for binary option markets showing price history and position distribution
+ * Supports both price trend visualization and position ratio tracking over time
+ * 
+ * @param chartData - Historical price data points for the trading pair
+ * @param positionHistory - Time series data of long/short position distribution
+ * @param positions - Current position values (long/short totals)
+ * @param strikePrice - Target price threshold for the binary option
+ * @param chartType - Type of chart to display ('price' or 'position')
+ * @param options - Display configuration options
+ * @param chartSymbol - Trading pair symbol (e.g., 'BTC/USD')
+ * @param biddingStartTime - Unix timestamp when bidding phase started
+ * @param maturityTime - Unix timestamp when the market matures/expires
+ */
 const MarketCharts: React.FC<MarketChartsProps> = ({
   chartData,
   positionHistory,
@@ -46,7 +62,6 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
   biddingStartTime,
   maturityTime
 }) => {
-  const [chartDataState, setChartData] = useState<any[]>([]);
   const [currentTime, setCurrentTime] = useState<number>(Math.floor(Date.now() / 1000));
   const [isLoadingChart, setIsLoadingChart] = useState<boolean>(true);
   const [effectiveChartSymbol, setEffectiveChartSymbol] = useState<string>(chartSymbol || '');
@@ -86,6 +101,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     }
   }, [chartSymbol]);
 
+  // Update current time at regular intervals for real-time position tracking
   useEffect(() => {
     const updateTime = () => {
       setCurrentTime(Math.floor(Date.now() / 1000));
@@ -101,6 +117,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     };
   }, []);
 
+  /**
+   * Process and filter position history data based on current time
+   * Creates a smooth visualization of position changes over time
+   */
   useEffect(() => {
     if (!positionHistory || !biddingStartTime || !maturityTime) {
       return;
@@ -108,11 +128,13 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
 
     const throttledUpdate = () => {
       if (positionHistory.length > 0) {
+        // Filter position history to only show data up to current time
         positionHistoryRef.current = positionHistory.filter(point =>
           point.timestamp <= currentTime
         );
       }
 
+      // Generate enhanced data with interpolated points for smoother charts
       const enhancedData = generateEnhancedPositionData(
         positionHistoryRef.current,
         biddingStartTime,
@@ -126,6 +148,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
 
     throttledUpdate();
 
+    // Update position visualization every 500ms
     intervalRef.current = setInterval(throttledUpdate, 500);
 
     return () => {
@@ -135,29 +158,40 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     };
   }, [positionHistory, biddingStartTime, maturityTime, currentTime, positions]);
 
+  /**
+   * Optimize price chart data by filtering to relevant time period
+   * Only shows the last week of data for better visualization
+   */
   const optimizedPriceData = useMemo(() => {
     if (!chartData || chartData.length === 0) return [];
 
     const now = Date.now();
     const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
 
+    // Filter to last week and sort chronologically
     let filteredData = chartData.filter(item => item.time >= oneWeekAgo);
-
     filteredData.sort((a, b) => a.time - b.time);
 
     return filteredData;
   }, [chartData]);
 
+  /**
+   * Prepare position history data for rendering
+   * Ensures data is properly sorted by timestamp
+   */
   const optimizedPositionData = useMemo(() => {
     if (!positionHistory || positionHistory.length === 0) return [];
 
     let filteredData = [...positionHistory];
-
     filteredData.sort((a, b) => a.timestamp - b.timestamp);
 
     return filteredData;
   }, [positionHistory]);
 
+  /**
+   * Generate tick marks for price chart x-axis
+   * Creates evenly spaced ticks for the last 7 days
+   */
   const getPriceChartTicks = () => {
     const today = new Date();
     const ticks = [];
@@ -170,34 +204,51 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     return ticks;
   };
 
+  /**
+   * Generate tick marks for position chart x-axis
+   * Distributes ticks evenly between bidding start and maturity time
+   */
   const getPositionChartTicks = () => {
     if (!biddingStartTime || !maturityTime) return [];
 
+    // Calculate time interval between ticks
     const duration = maturityTime - biddingStartTime;
     const interval = Math.max(Math.floor(duration / 5), 1);
 
     const ticks = [];
     ticks.push(biddingStartTime);
 
+    // Add intermediate ticks
     let current = biddingStartTime + interval;
     while (current < maturityTime) {
       ticks.push(current);
       current += interval;
     }
 
+    // Ensure maturity time is always included
     ticks.push(maturityTime);
     return ticks;
   };
 
+  /**
+   * Format price chart x-axis tick labels as dates
+   */
   const formatPriceXAxisTick = (timestamp: number) => {
     return format(new Date(timestamp), 'dd/MM');
   };
 
+  /**
+   * Format position chart x-axis tick labels as date/time
+   */
   const formatPositionXAxisTick = (timestamp: number) => {
     const date = new Date(timestamp * 1000);
     return format(date, 'HH:mm dd/MM');
   };
 
+  /**
+   * Custom renderer for position chart data points
+   * Highlights current position with special styling
+   */
   const renderPositionDot = useCallback(({ cx, cy, payload, dataKey }: any) => {
     if (payload.isCurrentPoint) {
       const color = dataKey === 'longPercentage' ? '#00D7B5' : '#FF6384';
@@ -214,6 +265,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     return null;
   }, []);
 
+  /**
+   * Custom tooltip component for position chart
+   * Shows timestamp and position percentages
+   */
   const PositionChartTooltip = useCallback(({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const time = format(new Date(label * 1000), 'HH:mm:ss dd/MM/yyyy');
@@ -240,16 +295,26 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     return null;
   }, []);
 
+  /**
+   * Handle mouse movement over chart to update hover data
+   */
   const handleMouseMove = (e: any) => {
     if (e && e.activePayload && e.activePayload.length) {
       setHoverData(e.activePayload[0].payload);
     }
   };
 
+  /**
+   * Reset hover data when mouse leaves chart area
+   */
   const handleMouseLeave = () => {
     setHoverData(null);
   };
 
+  /**
+   * Render additional information for the hovered data point
+   * Shows price difference from strike price
+   */
   const renderHoverInfo = () => {
     if (!hoverData) return null;
 
@@ -263,18 +328,6 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
       ? `(${hoverData.close > strikePrice ? '+' : ''}${percentDiff}%)`
       : '';
 
-    // return (
-    //   <VStack align="flex-start">
-    //     <Text color="white" fontSize="lg">
-    //       {/* {format(date, 'dd MMM yyyy HH:mm')} - Price: ${hoverData.close.toFixed(2)} {diffString} */}
-    //       ${hoverData.close.toFixed(2)}
-
-    //     </Text>
-    //     <Text color="white" fontSize="sm">
-    //       {diffString}
-    //     </Text>
-    //   </VStack>
-    // );
   };
 
   const generateEnhancedPositionData = useCallback((
@@ -418,8 +471,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 name="SHORT"
               />
               
-
-              />
+              
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -431,12 +483,15 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     if (optimizedPriceData.length > 1) {
       const currentPrice = optimizedPriceData[optimizedPriceData.length - 1].close;
       const previousPrice = optimizedPriceData[optimizedPriceData.length - 2].close;
-      const difference = Math.abs(hoverData?.close - strikePrice);
+      const difference = (hoverData?.close - strikePrice);
       setDiffString(`${difference.toFixed(2)} USD`);
       setPercentDiff(difference / strikePrice * 100);
     }
   }, [hoverData]);
 
+  /**
+   * Update percentage difference when price data or strike price changes
+   */
   useEffect(() => {
     if (optimizedPriceData.length > 0 && strikePrice > 0) {
         const currentPrice = optimizedPriceData[optimizedPriceData.length - 1].close;
@@ -446,30 +501,49 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     }
   }, [optimizedPriceData, strikePrice]);
 
-  if (chartType === 'price') {
-    const lineColor = strikePrice > 0 && optimizedPriceData.length > 0 && optimizedPriceData[optimizedPriceData.length - 1]?.close > strikePrice ? "#FF8C00" : "#FF6384";
+  // Ensure strike price is properly formatted for display
+  // Convert from string or large integer to decimal value if needed
+  const displayStrikePrice = typeof strikePrice === 'string' 
+    ? parseFloat(strikePrice) 
+    : typeof strikePrice === 'number' 
+      ? strikePrice 
+      : parseFloat(strikePrice.toString()) / STRIKE_PRICE_MULTIPLIER;
 
+  // Render price chart if chartType is 'price'
+  if (chartType === 'price') {
+    // const lineColor = strikePrice > 0 && optimizedPriceData.length > 0 && optimizedPriceData[optimizedPriceData.length - 1]?.close > strikePrice ? "#FF6384" : "#00D7B5";
+    const lineColor = "#3ABEFF";
     return (
       <Box p={4} bg="#0A0B0E" borderRadius="md" boxShadow="lg">
+        {/* Price display and statistics header */}
         <Flex justify="space-between" align="center" mb={4} direction="column">
           <Flex w="100%" justify="space-between" align="center" mb={2}>
             <VStack align="flex-start" fontSize="xl">
-              <Text color="white" fontSize="4xl">
+              <Text color="white" fontSize="4xl" fontWeight="bold">
                 ${hoverData?.close ? hoverData.close.toFixed(2) : '0.00'}
               </Text>
-              <Text color="white" fontSize="lg">
-                {diffString} ({percentDiff.toFixed(2)}%)
+              <Text 
+                color={percentDiff >= 0 ? "#00D7B5" : "#FF6384"} 
+                fontSize="lg"
+              >
+                {diffString} ({percentDiff >= 0 ? "+" : ""}{percentDiff.toFixed(2)}%)
               </Text>
             </VStack>
 
             <Flex justify="space-between" align="center">
               {!isLoadingChart && optimizedPriceData.length > 0 ? (
-                <Text fontSize="2xl" fontWeight="bold" color={lineColor}>
-                  ${optimizedPriceData[optimizedPriceData.length - 1]?.close.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                  })}
-                </Text>
+                // Platform branding/logo
+                <Text 
+                    fontSize="5xl" 
+                    fontWeight="bold" 
+                    bgGradient="linear(to-r, #4a63c8, #5a73d8, #6a83e8)" 
+                    bgClip="text"
+                    letterSpacing="wider"
+                    textShadow="0 0 10px rgba(74, 99, 200, 0.7), 0 0 20px rgba(74, 99, 200, 0.5)"
+                    fontFamily="'Orbitron', sans-serif"
+                  >
+                    OREKA
+                  </Text>
               ) : (
                 <Skeleton height="32px" width="120px" />
               )}
@@ -481,6 +555,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
           </Box>
         </Flex>
 
+        {/* Loading skeleton or actual chart */}
         {isLoadingChart && initialLoadRef.current ? (
           <Flex
             justify="center"
@@ -499,8 +574,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
               onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
             >
+              {/* Background grid lines */}
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.1)" />
 
+              {/* X-axis configuration */}
               <XAxis
                 dataKey="time"
                 type="number"
@@ -512,6 +589,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 axisLine={{ stroke: '#333' }}
               />
 
+              {/* Y-axis configuration */}
               <YAxis
                 domain={['auto', 'auto']}
                 stroke="#666"
@@ -519,6 +597,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 axisLine={{ stroke: '#333' }}
               />
 
+              {/* Price data line */}
               <Line
                 type="monotone"
                 dataKey="close"
@@ -529,13 +608,14 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 activeDot={{ r: 6, stroke: lineColor, strokeWidth: 2, fill: lineColor }}
               />
 
+              {/* Strike price reference line */}
               {strikePrice > 0 && (
                 <ReferenceLine
-                  y={strikePrice}
+                  y={displayStrikePrice}
                   stroke="#FEDF56"
                   strokeDasharray="3 3"
                   label={{
-                    value: `${strikePrice}`,
+                    value: `${displayStrikePrice}`,
                     position: 'left',
                     fill: '#FEDF56',
                     fontSize: 12
@@ -548,6 +628,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
       </Box>
     );
   } else {
+    // Render position distribution chart if chartType is not 'price'
     return renderPositionChart();
   }
 };
