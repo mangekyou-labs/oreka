@@ -33,7 +33,6 @@ const ListAddressPage = () => {
     const pageNumber = parseInt(router.query.page as string, 10);
     const finalPage = isNaN(pageNumber) ? 1 : pageNumber;
 
-    // Truyền walletAddress vào component để hiển thị các hợp đồng của người dùng hiện tại
     return (
         <div>
             <ListAddressOwner ownerAddress={walletAddress} page={finalPage} />
