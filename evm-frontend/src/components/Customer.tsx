@@ -1768,7 +1768,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       {/* Header Section */}
       <Flex px={6} py={4} alignItems="center">
         <Button
-          leftIcon={<FaChevronLeft />}
+          leftIcon={FaChevronLeft as unknown as JSX.Element}
           variant="ghost"
           color="gray.400"
           _hover={{
