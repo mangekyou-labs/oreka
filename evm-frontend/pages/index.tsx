@@ -30,7 +30,7 @@ const Home: NextPage = () => {
       }
     };
     autoConnect();
-  }, []);
+  }, [connectWallet, isConnected, router]);
 
   if (!isConnected) {
     return <div>Connecting wallet...</div>;

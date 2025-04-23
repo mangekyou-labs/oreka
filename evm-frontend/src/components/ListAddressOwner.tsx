@@ -1190,12 +1190,19 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 _focus={{ borderColor: 'blue.400', boxShadow: '0 0 0 2px rgba(66, 153, 225, 0.6)' }}
                 _hover={{ borderColor: 'blue.300' }}
               />
-              <InputRightElement pointerEvents="none" height="90%" pr={4} mr="5px" mt="1px" mb="1px"
-                children={<Icon as={FaSearch} color="gray.400" />}
+              <InputRightElement
+                pointerEvents="none"
+                height="90%"
+                pr={4}
+                mr="5px"
+                mt="1px"
+                mb="1px"
                 bg="#1A1C21"
                 borderColor="gray.600"
                 borderRadius="3xl"
-              />
+              >
+                <Icon as={FaSearch as React.ElementType} color="gray.400" />
+              </InputRightElement>
             </InputGroup>
 
             {/* Search results */}
@@ -1317,7 +1324,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 </Text>
               </HStack>
 
-              {/* Inject CSS animation */}
+              {/* Inject CSS animation
               <style jsx>{`
                   @keyframes gradient-border {
                     0% { background-position: 0% 50%; }
@@ -1325,7 +1332,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                     100% { background-position: 0% 50%; }
                   }
                 `}
-              </style>
+              </style> */}
             </Box>
 
             <Box
@@ -1356,7 +1363,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 {shortenAddress(walletAddress)}
               </Button>
 
-              {/* Inject animation for the border */}
+              {/* Inject animation for the border
               <style jsx>{`
                   @keyframes gradient-border {
                     0% { background-position: 0% 50%; }
@@ -1364,7 +1371,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                     100% { background-position: 0% 50%; }
                   }
                 `}
-              </style>
+              </style> */}
             </Box>
           </HStack>
         ) : (
@@ -1538,7 +1545,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                     />
                     <Box
                       display="inline-block"
-                      bg={getPhaseColor(Number(phase))} 
+                      bg={getPhaseColor(Number(phase))}
                       color="white"
                       px={3}
                       py={1}
@@ -1573,13 +1580,13 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                       style={{
                         WebkitLineClamp: 2,
                         WebkitBoxOrient: 'vertical',
-                        height: '3em', 
+                        height: '3em',
                       }}
                     >
                       {marketTitles[address] || "Loading..."}
                     </Box>
 
-                    
+
 
 
                     <HStack direction="column" w="100%" mb={4} width="100%">

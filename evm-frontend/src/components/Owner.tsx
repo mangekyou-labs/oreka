@@ -556,11 +556,11 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     try {
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const factory = new ethers.Contract(FACTORY_ADDRESS, Factory.abi, provider);
-  
+
       const filter = factory.filters.Deployed();
       const events = await factory.queryFilter(filter);
       const contractAddresses = events.map(e => e.args?.contractAddress).filter(Boolean);
-  
+
       const contractsData = await Promise.all(
         contractAddresses.map(async (address: string) => {
           const contract = new ethers.Contract(address, BinaryOptionMarket.abi, provider);
@@ -573,13 +573,13 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
               contract.tradingPair().catch(() => 'Unknown'),
               contract.owner()
             ]);
-  
+
             let indexBg = 1;
             try {
               const bg = await contract.indexBg();
               indexBg = bg.toNumber();
-            } catch {}
-  
+            } catch { }
+
             return {
               address,
               createDate: new Date().toISOString(),
@@ -597,10 +597,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
           }
         })
       );
-  
+
       const validContracts = contractsData.filter(Boolean);
       sessionStorage.setItem('cachedDeployedContracts', JSON.stringify(validContracts));
-  
+
       router.push('/listaddress/1');
     } catch (err) {
       console.error("Error fetching contracts before redirect:", err);
@@ -861,11 +861,12 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                   {/* Information note about market creation */}
                   <Box p={4} bg="rgba(255,255,255,0.05)" borderRadius="xl">
                     <Text fontSize="sm" color="white">
-                      Note: When creating a market, you're establishing a binary options contract
+                      Note: When creating a market, you&apos;re establishing a binary options contract
                       where users can bid on whether the price will be above (LONG) or below (SHORT)
                       the strike price at maturity. The fee you set (between 0.1% and 20%) will be
                       applied to winning positions and distributed to you as the market creator.
                     </Text>
+
                   </Box>
 
                   {/* Asset selection dropdown */}
@@ -932,11 +933,12 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                       />
                       <InputRightAddon
                         h="60px"
-                        children="$"
                         bg="transparent"
                         borderColor="rgba(255,255,255,0.2)"
                         color="white"
-                      />
+                      >
+                        $
+                      </InputRightAddon>
                     </InputGroup>
                   </Box>
 
@@ -1041,11 +1043,13 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                           />
                           <InputRightAddon
                             h="60px"
-                            children="%"
                             bg="transparent"
                             borderColor="rgba(255,255,255,0.2)"
                             color="white"
-                          />
+                          >
+                            %
+                          </InputRightAddon>
+
                         </InputGroup>
                       </Box>
                     </HStack>
@@ -1189,9 +1193,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                       {/* Replace fee section with Note */}
                       <Box p={3} bg="rgba(255,255,255,0.03)" borderRadius="md">
                         <Text fontSize="sm" color="white">
-                          Note: When creating a market, you're establishing a binary options contract where users can bid on whether the price will be above (LONG) or below (SHORT) the strike price at maturity. The fee you set (between 0.1% and 20%) will be applied to winning positions and distributed to you as the market creator.
+                          Note: When creating a market, you&apos;re establishing a binary options contract where users can bid on whether the price will be above (LONG) or below (SHORT) the strike price at maturity. The fee you set (between 0.1% and 20%) will be applied to winning positions and distributed to you as the market creator.
                         </Text>
                       </Box>
+
                     </VStack>
                   </Box>
 

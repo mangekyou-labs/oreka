@@ -494,10 +494,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
               margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-              /**
-               * X-axis configuration
-               * Displays timestamps and formats them for better readability
-               */
+            
               <XAxis
                 dataKey="timestamp"
                 tickFormatter={formatPositionXAxisTick}
@@ -508,10 +505,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 axisLine={{ stroke: '#333' }}
               />
 
-              /**
-               * Y-axis configuration
-               * Displays position percentages and formats them for better readability
-               */
+              
               <YAxis
                 domain={[0, 100]}
                 tickCount={5}
@@ -520,16 +514,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 axisLine={{ stroke: '#333' }}
               />
 
-              /**
-               * Tooltip configuration
-               * Displays detailed information about the hovered data point
-               */
+              
               <Tooltip content={<PositionChartTooltip />} />
 
-              /**
-               * Long position line
-               * Displays the long position percentage over time
-               */
+              
               <Line
                 type="monotone"
                 dataKey="longPercentage"
@@ -541,10 +529,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 name="LONG"
               />
 
-              /**
-               * Short position line
-               * Displays the short position percentage over time
-               */
+             
               <Line
                 type="monotone"
                 dataKey="shortPercentage"

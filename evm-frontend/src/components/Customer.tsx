@@ -1862,14 +1862,14 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
             </HStack>
 
             {/* Inject CSS animation */}
-            <style jsx>{`
+            {/* <style jsx>{`
                   @keyframes gradient-border {
                     0% { background-position: 0% 50%; }
                     50% { background-position: 100% 50%; }
                     100% { background-position: 0% 50%; }
                   }
                 `}
-            </style>
+            </style> */}
           </Box>
 
           {/* Wallet Address Box */}
@@ -1902,13 +1902,13 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               </Text>
             </Box>
 
-            <style jsx>{`
-    @keyframes gradient-border {
-      0% { background-position: 0% 50%; }
-      50% { background-position: 100% 50%; }
-      100% { background-position: 0% 50%; }
-    }
-  `}</style>
+            {/* <style jsx>{`
+              @keyframes gradient-border {
+                0% { background-position: 0% 50%; }
+                50% { background-position: 100% 50%; }
+                100% { background-position: 0% 50%; }
+              }
+            `}</style> */}
           </Box>
 
         </HStack>
@@ -2100,39 +2100,40 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
                 <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Market Phases:</Text>
                 <UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
-                  <ListItem><strong>Trading Phase:</strong> The market is visible but not yet open for bidding.</ListItem>
-                  <ListItem><strong>Bidding Phase:</strong> Users can place LONG/SHORT bids with ETH.</ListItem>
-                  <ListItem><strong>Maturity Phase:</strong> The final price is determined and the market outcome is resolved.</ListItem>
-                  <ListItem><strong>Expiry Phase:</strong> Winners can claim rewards proportional to their bid amount.</ListItem>
-                </UnorderedList>
+  <ListItem><strong>Trading Phase:</strong> The market is visible but not yet open for bidding.</ListItem>
+  <ListItem><strong>Bidding Phase:</strong> Users can place LONG/SHORT bids with ETH.</ListItem>
+  <ListItem><strong>Maturity Phase:</strong> The final price is determined and the market outcome is resolved.</ListItem>
+  <ListItem><strong>Expiry Phase:</strong> Winners can claim rewards proportional to their bid amount.</ListItem>
+</UnorderedList>
 
-                <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Yes/No Criteria:</Text>
-                <UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
-                  <ListItem>Resolves to <strong>"Yes"</strong> (LONG wins) if the final price is strictly above {strikePrice} USD at maturity time.</ListItem>
-                  <ListItem>Resolves to <strong>"No"</strong> (SHORT wins) if the final price is {strikePrice} USD or below at maturity time.</ListItem>
-                </UnorderedList>
+<Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Yes/No Criteria:</Text>
+<UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
+  <ListItem>Resolves to <strong>&quot;Yes&quot;</strong> (LONG wins) if the final price is strictly above {strikePrice} USD at maturity time.</ListItem>
+  <ListItem>Resolves to <strong>&quot;No&quot;</strong> (SHORT wins) if the final price is {strikePrice} USD or below at maturity time.</ListItem>
+</UnorderedList>
 
-                <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Resolution:</Text>
-                <UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
-                  <ListItem>We will use the Orally oracle price feed at the exact maturity time: {new Date(maturityTime * 1000).toLocaleString()}.</ListItem>
-                  <ListItem>Specifically, we will look at the closing USD value of {tradingPair} at that exact minute.</ListItem>
-                  <ListItem>If the price is strictly above {strikePrice} USD, the market resolves as <strong>"Yes"</strong>. Otherwise, it resolves as <strong>"No"</strong>.</ListItem>
-                </UnorderedList>
+<Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Resolution:</Text>
+<UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
+  <ListItem>We will use the Orally oracle price feed at the exact maturity time: {new Date(maturityTime * 1000).toLocaleString()}.</ListItem>
+  <ListItem>Specifically, we will look at the closing USD value of {tradingPair} at that exact minute.</ListItem>
+  <ListItem>If the price is strictly above {strikePrice} USD, the market resolves as <strong>&quot;Yes&quot;</strong>. Otherwise, it resolves as <strong>&quot;No&quot;</strong>.</ListItem>
+</UnorderedList>
 
-                <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Profit Calculation:</Text>
-                <Text color="gray.400" mb={3}>
-                  Your potential profit depends on the ratio between LONG and SHORT bids. If most users bet against your position, your potential profit increases. A fee of {Number(feePercentage) / 10}% is charged on winning positions.
-                </Text>
+<Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Profit Calculation:</Text>
+<Text color="gray.400" mb={3}>
+  Your potential profit depends on the ratio between LONG and SHORT bids. If most users bet against your position, your potential profit increases. A fee of {Number(feePercentage) / 10}% is charged on winning positions.
+</Text>
 
-                <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Cancellation (Invalidity) Conditions:</Text>
-                <UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
-                  <ListItem>If the price feed is unavailable at the resolution time.</ListItem>
-                  <ListItem>If market data is not available at the resolution time.</ListItem>
-                  <ListItem>Any other circumstance that makes resolution impossible or unreliable.</ListItem>
-                </UnorderedList>
-                <Text color="gray.400" mb={4}>
-                  If the market is canceled, participants can withdraw their full bid amount without any fees.
-                </Text>
+<Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Cancellation (Invalidity) Conditions:</Text>
+<UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
+  <ListItem>If the price feed is unavailable at the resolution time.</ListItem>
+  <ListItem>If market data is not available at the resolution time.</ListItem>
+  <ListItem>Any other circumstance that makes resolution impossible or unreliable.</ListItem>
+</UnorderedList>
+<Text color="gray.400" mb={4}>
+  If the market is canceled, participants can withdraw their full bid amount without any fees.
+</Text>
+
 
                 {/* Resolution Source Box */}
                 <Box
@@ -2372,7 +2373,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
             {/* Bidding */}
             <FormControl mb={2} mt={6} color="white">
-              <FormLabel>You're betting</FormLabel>
+              <FormLabel>You&apos;re betting</FormLabel>
               <Input
                 placeholder="Enter amount in ETH"
                 bg="gray.800"

@@ -24,7 +24,7 @@ const ListAddressPage = () => {
             }
         };
         autoConnect();
-    }, []);
+    }, [connectWallet, isConnected]);
 
     if (isLoading || !page) {
         return <div>Loading...</div>;
