@@ -820,11 +820,11 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
           zIndex={10}
         >
           <HStack>
-            <Icon as={FaWallet} color="white" />
+            <Icon as={FaWallet as React.ElementType} color="white" />
             <Text color="white">{shortenAddress(walletAddress)}</Text>
           </HStack>
           <HStack>
-            <Icon as={FaEthereum} color="white" />
+            <Icon as={FaEthereum as React.ElementType} color="white" />
             <Text color="white">{parseFloat(balance).toFixed(4)} ETH</Text>
           </HStack>
         </HStack>
@@ -888,7 +888,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                         borderColor: "white",
                         boxShadow: "0 0 0 1px white",
                       }}
-                      icon={<Icon as={FaEthereum} color="white" />}
+                      icon={<Icon as={FaEthereum as React.ElementType} color="white" />}
                     >
                       {availableCoins.map((coin) => (
                         <option
@@ -1160,7 +1160,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                           {priceChangePercent !== 0 && (
                             <>
                               <Icon
-                                as={priceChangePercent > 0 ? FaArrowUp : FaArrowDown}
+                                as={priceChangePercent > 0 ? FaArrowUp as React.ElementType : FaArrowDown as React.ElementType}
                                 color={priceChangePercent > 0 ? "green.400" : "red.400"}
                               />
                               <Text

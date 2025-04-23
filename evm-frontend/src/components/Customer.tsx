@@ -1762,6 +1762,8 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const bgColors = ["#A56DFF", "#26D1E6", "#FEDF56", "#7EFEB2", "#FF6492"]; // same as used in ListAddressOwner
   const strikeColor = bgColors[indexBg % bgColors.length];
 
+  
+
 
   return (
     <Box bg="black" minH="100vh">
@@ -1954,19 +1956,19 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               ) : (
                 <>
                   <HStack color="gray.400">
-                    <PiChartLineUpLight />
+                  {PiChartLineUpLight as unknown as JSX.Element}
                     <Text color="gray.400" fontSize="sm">
                       {totalDeposited.toFixed(6)} ETH |
                     </Text>
                   </HStack>
                   <HStack color="gray.400">
-                    <FaRegClock />
+                  {FaRegClock as unknown as JSX.Element}
                     <Text color="gray.400" fontSize="sm">
                       {formatMaturityTime(maturityTime)} |
                     </Text>
                   </HStack>
                   <HStack color="gray.400">
-                    <GrInProgress />
+                  {GrInProgress as unknown as JSX.Element}
                     <Text color="gray.400" fontSize="sm">
                       Phase: {Phase[currentPhase]}
                     </Text>
@@ -2330,7 +2332,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                 bg="gray.800"
                 width="50%"
                 onClick={() => handleSelectSide(Side.Long)}
-                leftIcon={<FaArrowUp />}
+                leftIcon={FaArrowUp as unknown as JSX.Element}
                 textColor="#28a745"
                 textShadow="1px 1px 12px rgba(40, 167, 69, 0.7)"
                 isDisabled={!isConnected || currentPhase !== Phase.Bidding}
@@ -2353,7 +2355,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                 bg="gray.800"
                 width="50%"
                 onClick={() => handleSelectSide(Side.Short)}
-                leftIcon={<FaArrowDown />}
+                leftIcon={FaArrowDown as unknown as JSX.Element}
                 textColor="#dc3545"
                 textShadow="1px 1px 12px rgba(220, 53, 69, 0.7)"
                 isDisabled={!isConnected || currentPhase !== Phase.Bidding}
@@ -2446,7 +2448,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               variant="ghost"
               color="#4169e1"
               onClick={() => router.push('/listaddress?currentTab=My%20Holdings')}
-              rightIcon={<FaChevronRight />}
+              rightIcon={FaChevronRight as unknown as JSX.Element}
               _hover={{ bg: 'rgba(254, 223, 86, 0.1)' }}
             >
               Make your first Prediction Market

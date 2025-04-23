@@ -1284,7 +1284,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
               boxShadow="0 4px 10px rgba(0, 0, 0, 0.3)"
             >
               <Button
-                leftIcon={<GrDeploy />}
+                leftIcon={GrDeploy as unknown as JSX.Element }
                 variant="solid"
                 color="white"
                 bg="#1A1C21"
@@ -1376,7 +1376,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
           </HStack>
         ) : (
           <Button
-            leftIcon={<FaWallet />}
+            leftIcon={FaWallet  as unknown as JSX.Element}
             colorScheme="white"
             size="md"
             onClick={connectWallet}
@@ -1687,7 +1687,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                     {/* Price and time remaining */}
                     <Flex justify="space-between" align="center">
                       <HStack spacing={2}>
-                        <Icon as={getIconBySymbol(tradingPair)} color="blue.300" boxSize={6} />
+                        <Icon as={getIconBySymbol(tradingPair) as React.ElementType} color="blue.300" boxSize={6} />
                         <Text fontWeight="bold" fontSize="lg" color="white">
                           {assetPrices[tradingPair]
                             ? `$${assetPrices[tradingPair].toLocaleString(undefined, {
@@ -1697,7 +1697,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                         </Text>
                       </HStack>
                       <HStack>
-                        <Icon as={FaRegClock} color="gray.400" />
+                        <Icon as={FaRegClock as React.ElementType} color="gray.400" />
                         <Text fontSize="sm" color="gray.400" textAlign="right">
                           {renderTimeRemaining(address)}
                         </Text>
