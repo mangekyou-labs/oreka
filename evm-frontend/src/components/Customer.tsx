@@ -133,6 +133,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const [finalPrice, setFinalPrice] = useState<string>('');
   const [showClaimButton, setShowClaimButton] = useState(false);
   const [reward, setReward] = useState(0);
+  const [feeAmount, setFeeAmount] = useState(0);
   const [contract, setContract] = useState<ethers.Contract | null>(null);
   const [positions, setPositions] = useState<{ long: number; short: number }>({ long: 0, short: 0 });
   const [contractAddress, setContractAddress] = useState(initialContractAddress || '');
@@ -185,6 +186,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const [isLoadingPositionHistory, setIsLoadingPositionHistory] = useState(true);
   const [contractOwner, setContractOwner] = useState<string | null>(null);
   const [showRules, setShowRules] = useState(false);
+  const hasExpiredWhileInTrading = currentPhase === Phase.Trading && Math.floor(Date.now() / 1000) > maturityTime;
 
   // Toast
   const toast = useToast();
@@ -206,7 +208,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       localStorage.removeItem('sessionBiddingStartTime');
     };
   }, []);
-  
+
 
   useEffect(() => {
     const cachedBiddingStart = localStorage.getItem('sessionBiddingStartTime');
@@ -214,7 +216,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       setBiddingStartTime(Number(cachedBiddingStart));
     }
   }, []);
-  
+
 
   // Effect to update state with query params
   useEffect(() => {
@@ -250,14 +252,14 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       try {
         const parsedData = JSON.parse(cachedData);
         const now = Date.now();
-  
+
         const isValid =
           parsedData.timestamp &&
           now - parsedData.timestamp < 5 * 60 * 1000 &&
-          parsedData.completeData; 
-  
+          parsedData.completeData;
+
         if (isValid) {
-  
+
           setTradingPair(parsedData.tradingPair);
           setChartSymbol(parsedData.chartSymbol);
           setStrikePrice(parsedData.formattedStrikePrice);
@@ -276,20 +278,20 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
           setUserPositions(parsedData.userPositions || { long: 0, short: 0 });
           setContractAddress(parsedData.address || contractAddress);
           setIndexBg(parseInt(parsedData.indexBg || "1"));
-  
+
           setIsLoadingContractData(false);
-  
-          return; 
+
+          return;
         }
       } catch (error) {
         console.error(" Error parsing enhanced cached data:", error);
       }
     }
-  
+
     // Nếu không hợp lệ thì mới fetch lại
     fetchMarketDetails();
   }, []);
-  
+
   /**
  * Effect to initialize contract address from props or localStorage
  */
@@ -405,7 +407,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
           // Only fetch user-specific data
           const [longPosition, shortPosition] = await Promise.all([
             contract.longBids(walletAddress),
-            contract.shortBids(walletAddress) 
+            contract.shortBids(walletAddress)
           ]);
 
           // Update user positions from mappings
@@ -884,23 +886,23 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   // Function to check if user can claim reward
   const canClaimReward = useCallback(async () => {
     if (!contract || currentPhase !== Phase.Expiry) return;
-  
+
     try {
       const hasClaimed = await contract.hasClaimed(walletAddress);
       if (hasClaimed) {
         setShowClaimButton(false);
         return;
       }
-  
+
       const oracleDetails = await contract.oracleDetails();
       const finalPrice = parseFloat(oracleDetails.finalPrice);
       const strikePrice = parseFloat(oracleDetails.strikePrice);
       const winningSide = finalPrice < strikePrice ? Side.Short : Side.Long;
-  
+
       const userDeposit = await (winningSide === Side.Long
         ? contract.longBids(walletAddress)
         : contract.shortBids(walletAddress));
-  
+
       if (userDeposit.gt(0)) {
         const positions = await contract.positions();
         const totalDeposited = positions.long.add(positions.short);
@@ -918,7 +920,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       setShowClaimButton(false);
     }
   }, [contract, currentPhase, walletAddress]);
-  
+
 
   // Effect to check claim eligibility
   useEffect(() => {
@@ -1252,69 +1254,95 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   };
 
+  const [canOwnerWithdraw, setCanOwnerWithdraw] = useState(false);
+
+  const canWithdraw = useCallback(async () => {
+    if (!contract || !isOwner || currentPhase !== Phase.Expiry) {
+      setCanOwnerWithdraw(false);
+      setWithdrawalAmount(0);
+      return;
+    }
+
+    try {
+      const positions = await contract.positions();
+      const feePct = await contract.feePercentage();
+      const totalDeposited = positions.long.add(positions.short);
+      const feeAmount = totalDeposited.mul(feePct).div(1000);
+
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const contractBalanceWei = await provider.getBalance(contractAddress);
+      const contractBalanceEth = parseFloat(ethers.utils.formatEther(contractBalanceWei));
+
+
+      if (feeAmount.gt(0) && contractBalanceEth >= parseFloat(ethers.utils.formatEther(feeAmount))) {
+        setFeeAmount(parseFloat(ethers.utils.formatEther(feeAmount)));
+        setWithdrawalAmount(feeAmount);
+        setCanOwnerWithdraw(true);
+      } else {
+        setFeeAmount(0);
+        setWithdrawalAmount(0);
+        setCanOwnerWithdraw(false);
+      }
+    } catch (error) {
+      console.error("Error checking withdraw availability:", error);
+      setCanOwnerWithdraw(false);
+      setWithdrawalAmount(0);
+    }
+  }, [contract, isOwner, currentPhase, contractAddress]);
+
+
+  useEffect(() => {
+    if (currentPhase === Phase.Expiry && isOwner) {
+      canWithdraw();
+    }
+  }, [currentPhase, canWithdraw]);
+
 
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawalAmount, setWithdrawalAmount] = useState(0);
+
   // Function to withdraw funds
   const handleWithdraw = async () => {
-    if (!contract || !isOwner) return;
-  
+    if (!contract || !isOwner || currentPhase !== Phase.Expiry) return;
+
     try {
       setIsWithdrawing(true);
-  
+
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
       const contractWithSigner = contract.connect(signer);
-  
-      // Fetch full state
-      const [positions, feePctBN] = await Promise.all([
-        contract.positions(),
-        contract.feePercentage()
-      ]);
-  
-      const totalDepositedBN = positions.long.add(positions.short);
-      const feeAmountBN = totalDepositedBN.mul(feePctBN).div(1000);
-      const feeAmountEth = parseFloat(ethers.utils.formatEther(feeAmountBN));
-  
-      setWithdrawalAmount(feeAmountEth);
-  
-      toast({
-        title: "Processing withdrawal",
-        description: `Withdrawing ${feeAmountEth.toFixed(4)} ETH to your wallet`,
-        status: "info",
-        duration: 3000,
-        isClosable: true,
-      });
-  
+
       const tx = await contractWithSigner.withdraw();
       await tx.wait();
-  
-      toast({
-        title: "Withdraw successful",
-        description: `${feeAmountEth.toFixed(4)} ETH has been withdrawn`,
-        status: "success",
-        duration: 4000,
-        isClosable: true,
-      });
-  
-      await fetchContractBalance();
+
+
+      await Promise.all([
+        fetchMarketDetails(),
+        fetchContractBalance()
+      ]);
+
       await refreshBalance();
+      setIsWithdrawing(false);
       setContractBalance(0);
-    } catch (error) {
-      console.error("Error withdrawing funds:", error);
+      setFeeAmount(0);
+
       toast({
-        title: "Withdraw failed",
+        title: "Success",
+        description: "Successfully withdraw!",
+        status: "success",
+        duration: 3000,
+      });
+
+    } catch (error) {
+      console.error("Error withdraw", error);
+      toast({
+        title: "Error withdraw",
         description: error.message,
         status: "error",
-        duration: 5000,
-        isClosable: true,
+        duration: 3000,
       });
-    } finally {
-      setIsWithdrawing(false);
     }
   };
-  
-
 
 
   // Improved fetchPositionHistory
@@ -1762,7 +1790,8 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const bgColors = ["#A56DFF", "#26D1E6", "#FEDF56", "#7EFEB2", "#FF6492"]; // same as used in ListAddressOwner
   const strikeColor = bgColors[indexBg % bgColors.length];
 
-  
+
+
 
 
   return (
@@ -1780,11 +1809,11 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
             try {
               const provider = new ethers.providers.Web3Provider(window.ethereum);
               const factory = new ethers.Contract(FACTORY_ADDRESS, Factory.abi, provider);
-          
+
               const filter = factory.filters.Deployed();
               const events = await factory.queryFilter(filter);
               const contractAddresses = events.map(e => e.args?.contractAddress).filter(Boolean);
-          
+
               const contractsData = await Promise.all(
                 contractAddresses.map(async (address: string) => {
                   const contract = new ethers.Contract(address, BinaryOptionMarket.abi, provider);
@@ -1797,13 +1826,13 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                       contract.tradingPair().catch(() => 'Unknown'),
                       contract.owner()
                     ]);
-          
+
                     let indexBg = 1;
                     try {
                       const bg = await contract.indexBg();
                       indexBg = bg.toNumber();
-                    } catch {}
-          
+                    } catch { }
+
                     return {
                       address,
                       createDate: new Date().toISOString(),
@@ -1821,20 +1850,18 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                   }
                 })
               );
-          
+
               const validContracts = contractsData.filter(Boolean);
               sessionStorage.setItem('cachedDeployedContracts', JSON.stringify(validContracts));
-          
+
               router.push('/listaddress/1');
             } catch (err) {
               console.error("Error fetching contracts before redirect:", err);
               router.push('/listaddress/1');
             }
           }}
-          
-          
-          
         >
+          <Icon as={FaChevronLeft as React.ElementType} mr={2} />
           Markets
         </Button>
 
@@ -1939,7 +1966,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                   <Skeleton height="30px" width="200px" />
                 ) : (
                   <>
-                    <Text color="#FEDF56" fontSize="30px">
+                    <Text color="white" fontSize="30px">
                       {tradingPair}
                     </Text>
                     <Text color="white" fontSize="25px">
@@ -1956,19 +1983,19 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               ) : (
                 <>
                   <HStack color="gray.400">
-                  {PiChartLineUpLight as unknown as JSX.Element}
+                    {PiChartLineUpLight as unknown as JSX.Element}
                     <Text color="gray.400" fontSize="sm">
                       {totalDeposited.toFixed(6)} ETH |
                     </Text>
                   </HStack>
                   <HStack color="gray.400">
-                  {FaRegClock as unknown as JSX.Element}
+                    {FaRegClock as unknown as JSX.Element}
                     <Text color="gray.400" fontSize="sm">
                       {formatMaturityTime(maturityTime)} |
                     </Text>
                   </HStack>
                   <HStack color="gray.400">
-                  {GrInProgress as unknown as JSX.Element}
+                    {GrInProgress as unknown as JSX.Element}
                     <Text color="gray.400" fontSize="sm">
                       Phase: {Phase[currentPhase]}
                     </Text>
@@ -2045,7 +2072,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
             <TabPanels>
 
-            <TabPanel p={0} pt={4}>
+              <TabPanel p={0} pt={4}>
                 <Box position="relative" width="100%">
                   <MarketCharts
                     chartData={[]}
@@ -2084,7 +2111,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                 </Box>
               </TabPanel>
 
-              
+
             </TabPanels>
           </Tabs>
 
@@ -2102,39 +2129,39 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
                 <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Market Phases:</Text>
                 <UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
-  <ListItem><strong>Trading Phase:</strong> The market is visible but not yet open for bidding.</ListItem>
-  <ListItem><strong>Bidding Phase:</strong> Users can place LONG/SHORT bids with ETH.</ListItem>
-  <ListItem><strong>Maturity Phase:</strong> The final price is determined and the market outcome is resolved.</ListItem>
-  <ListItem><strong>Expiry Phase:</strong> Winners can claim rewards proportional to their bid amount.</ListItem>
-</UnorderedList>
+                  <ListItem><strong>Trading Phase:</strong> The market is visible but not yet open for bidding.</ListItem>
+                  <ListItem><strong>Bidding Phase:</strong> Users can place LONG/SHORT bids with ETH.</ListItem>
+                  <ListItem><strong>Maturity Phase:</strong> The final price is determined and the market outcome is resolved.</ListItem>
+                  <ListItem><strong>Expiry Phase:</strong> Winners can claim rewards proportional to their bid amount.</ListItem>
+                </UnorderedList>
 
-<Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Yes/No Criteria:</Text>
-<UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
-  <ListItem>Resolves to <strong>&quot;Yes&quot;</strong> (LONG wins) if the final price is strictly above {strikePrice} USD at maturity time.</ListItem>
-  <ListItem>Resolves to <strong>&quot;No&quot;</strong> (SHORT wins) if the final price is {strikePrice} USD or below at maturity time.</ListItem>
-</UnorderedList>
+                <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Yes/No Criteria:</Text>
+                <UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
+                  <ListItem>Resolves to <strong>&quot;Yes&quot;</strong> (LONG wins) if the final price is strictly above {strikePrice} USD at maturity time.</ListItem>
+                  <ListItem>Resolves to <strong>&quot;No&quot;</strong> (SHORT wins) if the final price is {strikePrice} USD or below at maturity time.</ListItem>
+                </UnorderedList>
 
-<Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Resolution:</Text>
-<UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
-  <ListItem>We will use the Orally oracle price feed at the exact maturity time: {new Date(maturityTime * 1000).toLocaleString()}.</ListItem>
-  <ListItem>Specifically, we will look at the closing USD value of {tradingPair} at that exact minute.</ListItem>
-  <ListItem>If the price is strictly above {strikePrice} USD, the market resolves as <strong>&quot;Yes&quot;</strong>. Otherwise, it resolves as <strong>&quot;No&quot;</strong>.</ListItem>
-</UnorderedList>
+                <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Resolution:</Text>
+                <UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
+                  <ListItem>We will use the Orally oracle price feed at the exact maturity time: {new Date(maturityTime * 1000).toLocaleString()}.</ListItem>
+                  <ListItem>Specifically, we will look at the closing USD value of {tradingPair} at that exact minute.</ListItem>
+                  <ListItem>If the price is strictly above {strikePrice} USD, the market resolves as <strong>&quot;Yes&quot;</strong>. Otherwise, it resolves as <strong>&quot;No&quot;</strong>.</ListItem>
+                </UnorderedList>
 
-<Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Profit Calculation:</Text>
-<Text color="gray.400" mb={3}>
-  Your potential profit depends on the ratio between LONG and SHORT bids. If most users bet against your position, your potential profit increases. A fee of {Number(feePercentage) / 10}% is charged on winning positions.
-</Text>
+                <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Profit Calculation:</Text>
+                <Text color="gray.400" mb={3}>
+                  Your potential profit depends on the ratio between LONG and SHORT bids. If most users bet against your position, your potential profit increases. A fee of {Number(feePercentage) / 10}% is charged on winning positions.
+                </Text>
 
-<Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Cancellation (Invalidity) Conditions:</Text>
-<UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
-  <ListItem>If the price feed is unavailable at the resolution time.</ListItem>
-  <ListItem>If market data is not available at the resolution time.</ListItem>
-  <ListItem>Any other circumstance that makes resolution impossible or unreliable.</ListItem>
-</UnorderedList>
-<Text color="gray.400" mb={4}>
-  If the market is canceled, participants can withdraw their full bid amount without any fees.
-</Text>
+                <Text fontWeight="semibold" color="gray.300" mt={4} mb={2}>Cancellation (Invalidity) Conditions:</Text>
+                <UnorderedList color="gray.400" spacing={2} pl={5} mb={4}>
+                  <ListItem>If the price feed is unavailable at the resolution time.</ListItem>
+                  <ListItem>If market data is not available at the resolution time.</ListItem>
+                  <ListItem>Any other circumstance that makes resolution impossible or unreliable.</ListItem>
+                </UnorderedList>
+                <Text color="gray.400" mb={4}>
+                  If the market is canceled, participants can withdraw their full bid amount without any fees.
+                </Text>
 
 
                 {/* Resolution Source Box */}
@@ -2215,7 +2242,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                 Claim {reward.toFixed(5)} ETH
               </Button>
             )}
-            {isOwner && contractBalance > 0 && currentPhase === Phase.Expiry && (
+            {isOwner && feeAmount > 0 && currentPhase === Phase.Expiry && (
               <Button
                 onClick={handleWithdraw}
                 colorScheme="yellow"
@@ -2224,221 +2251,221 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                 _hover={{ bg: "#FFE56B" }}
                 width="100%"
                 mt={2}
-                isDisabled={ contractBalance <= 0 || isWithdrawing }
+                isDisabled={feeAmount === 0 || !canWithdraw()}
               >
-                Withdraw {withdrawalAmount.toFixed(4)} ETH
+                Withdraw {feeAmount.toFixed(4)} ETH
               </Button>
             )}
           </Box>
-          {(currentPhase === Phase.Trading || currentPhase === Phase.Bidding) && (
-          <Box
-            bg="gray.800"
-            p={4}
-            borderRadius="xl"
-            mb={4}
-            borderWidth={1}
-            borderColor="gray.700"
-          >
-            {/* LONG/SHORT Ratio */}
-            <HStack align="center" spacing={3} w="100%">
-              {longPercentage > 8 && (
-                <Text
-                  fontSize="sm"
-                  fontWeight="bold"
-                  color="whiteAlpha.800"
-                  whiteSpace="nowrap"
+          {(currentPhase === Phase.Trading || currentPhase === Phase.Bidding) && ((Math.floor(Date.now() / 1000) < maturityTime)) && (
+            <Box
+              bg="gray.800"
+              p={4}
+              borderRadius="xl"
+              mb={4}
+              borderWidth={1}
+              borderColor="gray.700"
+            >
+              {/* LONG/SHORT Ratio */}
+              <HStack align="center" spacing={3} w="100%">
+                {longPercentage > 8 && (
+                  <Text
+                    fontSize="sm"
+                    fontWeight="bold"
+                    color="whiteAlpha.800"
+                    whiteSpace="nowrap"
+                    mb={4}
+                  >
+                    {longPercentage.toFixed(0)}%
+                  </Text>
+                )}
+                <Flex
+                  flex="1"
+                  align="center"
+                  w="100%"
+                  h="18px"
+                  borderRadius="full"
+                  bg="gray.800"
+                  border="5px solid"
+                  borderColor="gray.400"
+                  position="relative"
+                  overflow="hidden"
+                  boxShadow="inset 0 1px 3px rgba(0,0,0,0.6)"
                   mb={4}
+                  p={0}
                 >
-                  {longPercentage.toFixed(0)}%
+
+
+                  {/* LONG Section */}
+                  <Box
+                    position="absolute"
+                    width={`${longPercentage}%`}
+                    bgGradient="linear(to-r, #00ea00, #56ff56, #efef8b)"
+                    transition="width 0.6s ease"
+                    h="100%"
+
+                    display="flex"
+                    alignItems="center"
+                    justifyContent="flex-end"
+                    pr={3}
+                    left="0"
+                    top="0"
+                    zIndex={1}
+
+                  >
+
+                  </Box>
+
+                  {/* SHORT Section (in absolute layer for smooth overlap) */}
+                  <Box
+                    position="absolute"
+                    right="0"
+                    top="0"
+                    h="100%"
+                    width={`${shortPercentage}%`}
+                    bgGradient="linear(to-r, #FF6B81, #D5006D)"
+                    transition="width 0.6s ease"
+                    display="flex"
+                    alignItems="center"
+                    justifyContent="flex-start"
+                    pl={3}
+                    zIndex={0}
+
+                  >
+
+                  </Box>
+
+                </Flex>
+
+                {shortPercentage > 8 && (
+                  <Text
+                    fontSize="sm"
+                    fontWeight="bold"
+                    color="whiteAlpha.800"
+                    whiteSpace="nowrap"
+                    mb={4}
+                  >
+                    {shortPercentage.toFixed(0)}%
+                  </Text>
+                )}
+              </HStack>
+
+              <HStack spacing={4} mb={3} ml={2} mr={2}>
+                <Button
+                  border="1px solid"
+                  borderColor="gray.300"
+                  borderRadius="20px"
+                  colorScheme="gray"
+                  bg="gray.800"
+                  width="50%"
+                  onClick={() => handleSelectSide(Side.Long)}
+                  leftIcon={FaArrowUp as unknown as JSX.Element}
+                  textColor="#28a745"
+                  textShadow="1px 1px 12px rgba(40, 167, 69, 0.7)"
+                  isDisabled={!isConnected || currentPhase !== Phase.Bidding}
+                  _hover={{
+                    bg: "gray.700",
+                    boxShadow: "0 4px 8px rgba(220, 53, 69, 0.2)",
+                  }}
+                  _active={{
+                    bg: "#cececc",
+                  }}
+                  isActive={selectedSide === Side.Long}
+                >
+                  UP
+                </Button>
+                <Button
+                  border="1px solid"
+                  borderColor="gray.300"
+                  borderRadius="20px"
+                  colorScheme="gray"
+                  bg="gray.800"
+                  width="50%"
+                  onClick={() => handleSelectSide(Side.Short)}
+                  leftIcon={FaArrowDown as unknown as JSX.Element}
+                  textColor="#dc3545"
+                  textShadow="1px 1px 12px rgba(220, 53, 69, 0.7)"
+                  isDisabled={!isConnected || currentPhase !== Phase.Bidding}
+                  _hover={{
+                    bg: "gray.700",
+                    boxShadow: "0 4px 8px rgba(220, 53, 69, 0.2)",
+                  }}
+                  _active={{
+                    bg: "#cececc",
+                  }}
+                  isActive={selectedSide === Side.Short}
+                >
+                  DOWN
+                </Button>
+              </HStack>
+
+
+              {/* Bidding */}
+              <FormControl mb={2} mt={6} color="white">
+                <FormLabel>You&apos;re betting</FormLabel>
+                <Input
+                  placeholder="Enter amount in ETH"
+                  bg="gray.800"
+                  color="white"
+                  borderColor="gray.600"
+                  borderRadius="md"
+                  mb={3}
+                  ml={2}
+                  mr={2}
+                  value={bidAmount}
+                  onChange={handleBidAmountChange}
+                //onReset={resetBettingForm}
+                />
+              </FormControl>
+
+              <HStack spacing={2} mt={1} mb={2} ml={2} mr={2} alignItems="center" justifyContent="center">
+                <Button
+                  colorScheme="#0040C1"
+                  bg="#0040C1"
+                  color="white"
+                  _hover={{ bg: "#0040C1" }}
+                  width="100%"
+                  py={6}
+                  mb={3}
+                  ml={2}
+                  mr={2}
+                  onClick={() => handleBid()}
+                  isLoading={isResolving}
+                  loadingText="Placing bid..."
+                  isDisabled={!isConnected || selectedSide === null || currentPhase !== Phase.Bidding || Math.floor(Date.now() / 1000) > maturityTime}
+                >
+                  Betting to rich
+                </Button>
+              </HStack>
+              <Flex justify="space-between" px={2} mb={1}>
+                <Text fontSize="lg" color="gray.400">
+                  Fee:
                 </Text>
-              )}
-              <Flex
-                flex="1"
-                align="center"
-                w="100%"
-                h="18px"
-                borderRadius="full"
-                bg="gray.800"
-                border="5px solid"
-                borderColor="gray.400"
-                position="relative"
-                overflow="hidden"
-                boxShadow="inset 0 1px 3px rgba(0,0,0,0.6)"
-                mb={4}
-                p={0}
-              >
-
-
-                {/* LONG Section */}
-                <Box
-                  position="absolute"
-                  width={`${longPercentage}%`}
-                  bgGradient="linear(to-r, #00ea00, #56ff56, #efef8b)"
-                  transition="width 0.6s ease"
-                  h="100%"
-
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="flex-end"
-                  pr={3}
-                  left="0"
-                  top="0"
-                  zIndex={1}
-
-                >
-
-                </Box>
-
-                {/* SHORT Section (in absolute layer for smooth overlap) */}
-                <Box
-                  position="absolute"
-                  right="0"
-                  top="0"
-                  h="100%"
-                  width={`${shortPercentage}%`}
-                  bgGradient="linear(to-r, #FF6B81, #D5006D)"
-                  transition="width 0.6s ease"
-                  display="flex"
-                  alignItems="center"
-                  justifyContent="flex-start"
-                  pl={3}
-                  zIndex={0}
-
-                >
-
-                </Box>
-
+                <Text fontSize="lg" color="gray.400">
+                  {Number(feePercentage) / 10}%
+                </Text>
               </Flex>
 
-              {shortPercentage > 8 && (
-                <Text
-                  fontSize="sm"
-                  fontWeight="bold"
-                  color="whiteAlpha.800"
-                  whiteSpace="nowrap"
-                  mb={4}
-                >
-                  {shortPercentage.toFixed(0)}%
+              <Flex justify="space-between" px={2} mb={1}>
+                <Text color="gray.400" fontSize="lg">
+                  Pot. profit:
                 </Text>
-              )}
-            </HStack>
+                <Text color={profitPercentage > 0 ? "green.400" : "gray.400"} fontSize="15px">
+                  {potentialProfit} {profitPercentage !== 0 ? `(${profitPercentage > 0 ? '+' : ''}${profitPercentage.toFixed(2)}%)` : ''} ETH
+                </Text>
+              </Flex>
 
-            <HStack spacing={4} mb={3} ml={2} mr={2}>
-              <Button
-                border="1px solid"
-                borderColor="gray.300"
-                borderRadius="20px"
-                colorScheme="gray"
-                bg="gray.800"
-                width="50%"
-                onClick={() => handleSelectSide(Side.Long)}
-                leftIcon={FaArrowUp as unknown as JSX.Element}
-                textColor="#28a745"
-                textShadow="1px 1px 12px rgba(40, 167, 69, 0.7)"
-                isDisabled={!isConnected || currentPhase !== Phase.Bidding}
-                _hover={{
-                  bg: "gray.700",
-                  boxShadow: "0 4px 8px rgba(220, 53, 69, 0.2)",
-                }}
-                _active={{
-                  bg: "#cececc",
-                }}
-                isActive={selectedSide === Side.Long}
-              >
-                UP
-              </Button>
-              <Button
-                border="1px solid"
-                borderColor="gray.300"
-                borderRadius="20px"
-                colorScheme="gray"
-                bg="gray.800"
-                width="50%"
-                onClick={() => handleSelectSide(Side.Short)}
-                leftIcon={FaArrowDown as unknown as JSX.Element}
-                textColor="#dc3545"
-                textShadow="1px 1px 12px rgba(220, 53, 69, 0.7)"
-                isDisabled={!isConnected || currentPhase !== Phase.Bidding}
-                _hover={{
-                  bg: "gray.700",
-                  boxShadow: "0 4px 8px rgba(220, 53, 69, 0.2)",
-                }}
-                _active={{
-                  bg: "#cececc",
-                }}
-                isActive={selectedSide === Side.Short}
-              >
-                DOWN
-              </Button>
-            </HStack>
-
-
-            {/* Bidding */}
-            <FormControl mb={2} mt={6} color="white">
-              <FormLabel>You&apos;re betting</FormLabel>
-              <Input
-                placeholder="Enter amount in ETH"
-                bg="gray.800"
-                color="white"
-                borderColor="gray.600"
-                borderRadius="md"
-                mb={3}
-                ml={2}
-                mr={2}
-                value={bidAmount}
-                onChange={handleBidAmountChange}
-              //onReset={resetBettingForm}
-              />
-            </FormControl>
-
-            <HStack spacing={2} mt={1} mb={2} ml={2} mr={2} alignItems="center" justifyContent="center">
-              <Button
-                colorScheme="#0040C1"
-                bg="#0040C1"
-                color="white"
-                _hover={{ bg: "#0040C1" }}
-                width="100%"
-                py={6}
-                mb={3}
-                ml={2}
-                mr={2}
-                onClick={() => handleBid()}
-                isLoading={isResolving}
-                loadingText="Placing bid..."
-                isDisabled={!isConnected || selectedSide === null || currentPhase !== Phase.Bidding || Math.floor(Date.now() / 1000) > maturityTime}
-              >
-                Betting to rich
-              </Button>
-            </HStack>
-            <Flex justify="space-between" px={2} mb={1}>
-              <Text fontSize="lg" color="gray.400">
-                Fee:
-              </Text>
-              <Text fontSize="lg" color="gray.400">
-                {Number(feePercentage) / 10}%
-              </Text>
-            </Flex>
-
-            <Flex justify="space-between" px={2} mb={1}>
-              <Text color="gray.400" fontSize="lg">
-                Pot. profit:
-              </Text>
-              <Text color={profitPercentage > 0 ? "green.400" : "gray.400"} fontSize="15px">
-                {potentialProfit} {profitPercentage !== 0 ? `(${profitPercentage > 0 ? '+' : ''}${profitPercentage.toFixed(2)}%)` : ''} ETH
-              </Text>
-            </Flex>
-
-            {/* Your Position */}
-            <Text fontSize="lg" fontWeight="bold" mb={3} mt = {4} color="#FEDF56">Your Position</Text>
-            <Flex justify="space-between" mb={2}>
-              <Text color="green.400">LONG:</Text>
-              <Text color="white">{userPositions.long.toFixed(6)} ETH</Text>
-            </Flex>
-            <Flex justify="space-between">
-              <Text color="red.400">SHORT:</Text>
-              <Text color="white">{userPositions.short.toFixed(6)} ETH</Text>
-            </Flex>
-          </Box>
+              {/* Your Position */}
+              <Text fontSize="lg" fontWeight="bold" mb={3} mt={4} color="#FEDF56">Your Position</Text>
+              <Flex justify="space-between" mb={2}>
+                <Text color="green.400">LONG:</Text>
+                <Text color="white">{userPositions.long.toFixed(6)} ETH</Text>
+              </Flex>
+              <Flex justify="space-between">
+                <Text color="red.400">SHORT:</Text>
+                <Text color="white">{userPositions.short.toFixed(6)} ETH</Text>
+              </Flex>
+            </Box>
           )}
           <Box p={4} borderRadius="xl" mb={4} borderWidth={1} borderColor="gray.700">
             <Text fontSize="lg" fontWeight="bold" mb={3} color="white">
@@ -2447,7 +2474,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
             <Button
               variant="ghost"
               color="#4169e1"
-              onClick={() => router.push('/listaddress?currentTab=My%20Holdings')}
+              onClick={() => router.push('/listaddress/1?currentTab=My%20Holdings')}
               rightIcon={FaChevronRight as unknown as JSX.Element}
               _hover={{ bg: 'rgba(254, 223, 86, 0.1)' }}
             >
@@ -2459,7 +2486,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
           <Box
             bg="#222530"
             p={4}
-            mt = {7}
+            mt={7}
             borderWidth={1}
             borderColor="gray.700"
             borderRadius="30px"
@@ -2487,9 +2514,13 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                 </Text>
               </VStack>
             ) : (
-              <Text fontSize="2xl" fontWeight="bold" mb={4} mt={2} color="#gray.600" textAlign="center">
-                Market is Live
+              <Text fontSize="2xl" fontWeight="bold" mb={4} mt={2} color="#99A0AE" textAlign="center">
+                Market is{" "}
+                <Text as="span" color={hasExpiredWhileInTrading ? "red.400" : "green.400"}>
+                  {hasExpiredWhileInTrading ? "Expired" : currentPhase === Phase.Trading ? "Live" : ""}
+                </Text>
               </Text>
+
             )}
 
             <Box

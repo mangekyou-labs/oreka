@@ -124,6 +124,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
   const [marketResults, setMarketResults] = useState<{ [key: string]: string }>({});
   // Tab selection for filtering markets
   const [currentTab, setCurrentTab] = useState<string>('All Markets');
+  const { currentTab: currentTabQuery } = router.query;
 
   // Trading pair filter
   const [currentTradingPairFilter, setCurrentTradingPairFilter] = useState<string | null>(null);
@@ -138,7 +139,14 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
    * Filters contracts based on the currently selected tab
    * Different tabs show different subsets of markets (All, Recent, Active, Expired, By Asset)
    */
-  const filteredContracts = currentContracts
+
+  useEffect(() => {
+    if (typeof currentTabQuery === 'string') {
+      setCurrentTab(currentTabQuery);
+    }
+  }, [currentTabQuery]);
+  
+  const filteredContracts = deployedContracts
     .filter(contract => {
       const contractTimestamp = contract.createDate
         ? new Date(contract.createDate).getTime()
@@ -155,9 +163,12 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
             contractTimestamp >= oneWeekAgo
           );
 
-        case 'Quests':
-          return Number(contract.phase) === Phase.Trading || Number(contract.phase) === Phase.Bidding;
-
+          case 'Quests':
+            return (
+              (Number(contract.phase) === Phase.Trading ||
+              Number(contract.phase) === Phase.Bidding) &&
+              Math.floor(Date.now()) < Number(contract.maturityTime) * 1000 
+            );
         case 'Results':
           return Number(contract.phase) === Phase.Maturity || Number(contract.phase) === Phase.Expiry;
 
@@ -172,6 +183,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
           return true;
       }
     })
+    .slice(0, contractsPerPage)
     .sort((a, b) => {
       if (currentTab === 'All Markets') {
         const now = Date.now();
@@ -204,7 +216,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
   useEffect(() => {
     if (currentTab === 'Most recent') {
       // Create a copy of the array to avoid modifying the original state directly
-      const sortedContracts = [...deployedContracts].sort((a, b) => {
+      const sortedContracts = [...currentContracts].sort((a, b) => {
         // Sort by creation date in descending order (newest first)
         return new Date(b.createDate).getTime() - new Date(a.createDate).getTime();
       });
@@ -1627,7 +1639,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                             <Text
                               fontSize="md"
                               fontWeight="bold"
-                              color="#A9A9A9" // Màu chữ xám cho thông báo hết hạn
+                              color="#A9A9A9"
                             >
                               Expired
                             </Text>
