@@ -146,83 +146,43 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
     }
   }, [currentTabQuery]);
   
-  const filteredContracts = deployedContracts
-    .filter(contract => {
-      const contractTimestamp = contract.createDate
-        ? new Date(contract.createDate).getTime()
-        : Number(contract.maturityTime) * 1000;
+  const indexOfLastContract = page * contractsPerPage;
+const indexOfFirstContract = indexOfLastContract - contractsPerPage;
 
-      const now = Date.now();
+const filteredContracts = deployedContracts
+  .filter(contract => {
+    const contractTimestamp = contract.createDate
+      ? new Date(contract.createDate).getTime()
+      : Number(contract.maturityTime) * 1000;
 
-      switch (currentTab) {
-        case 'All Markets':
-          return true;
-
-        case 'Most recent':
-          return (
-            contractTimestamp >= oneWeekAgo
-          );
-
-          case 'Quests':
-            return (
-              (Number(contract.phase) === Phase.Trading ||
-              Number(contract.phase) === Phase.Bidding) &&
-              Math.floor(Date.now()) < Number(contract.maturityTime) * 1000 
-            );
-        case 'Results':
-          return Number(contract.phase) === Phase.Maturity || Number(contract.phase) === Phase.Expiry;
-
-        case 'Pair':
-          return currentTradingPairFilter ? contract.tradingPair === currentTradingPairFilter : true;
-        case 'My Markets':
-          return contract.owner.toLowerCase() === walletAddress?.toLowerCase();
-
-        case 'My Holdings':
-          return userHoldingsContracts.includes(contract.address.toLowerCase());
-        default:
-          return true;
-      }
-    })
-    .slice(0, contractsPerPage)
-    .sort((a, b) => {
-      if (currentTab === 'All Markets') {
-        const now = Date.now();
-        const aMaturity = Number(a.maturityTime) * 1000;
-        const bMaturity = Number(b.maturityTime) * 1000;
-
-        const aHasExpired = now > aMaturity;
-        const bHasExpired = now > bMaturity;
-
-        // If both are not expired, sort by maturity time
-        if (!aHasExpired && !bHasExpired) {
-          return aMaturity - bMaturity;
-        }
-
-        // If only a has expired, prioritize b
-        if (aHasExpired && !bHasExpired) return 1;
-        if (!aHasExpired && bHasExpired) return -1;
-
-        // If both have expired, keep the order
-        return 0;
-      }
-
-      return 0;
-    });
-
-  /**
-     * Sorts contracts by creation date when "Most recent" tab is selected
-     * Newest contracts appear at the top of the list
-     */
-  useEffect(() => {
-    if (currentTab === 'Most recent') {
-      // Create a copy of the array to avoid modifying the original state directly
-      const sortedContracts = [...currentContracts].sort((a, b) => {
-        // Sort by creation date in descending order (newest first)
-        return new Date(b.createDate).getTime() - new Date(a.createDate).getTime();
-      });
-      setCurrentContracts(sortedContracts);
+    switch (currentTab) {
+      case 'All Markets':
+        return true;
+      case 'Quests':
+        return (
+          (Number(contract.phase) === Phase.Trading || Number(contract.phase) === Phase.Bidding) &&
+          Math.floor(Date.now()) < Number(contract.maturityTime) * 1000
+        );
+      case 'Results':
+        return Number(contract.phase) === Phase.Maturity || Number(contract.phase) === Phase.Expiry;
+      case 'Pair':
+        return currentTradingPairFilter ? contract.tradingPair === currentTradingPairFilter : true;
+      case 'My Markets':
+        return contract.owner.toLowerCase() === walletAddress?.toLowerCase();
+      case 'My Holdings':
+        return userHoldingsContracts.includes(contract.address.toLowerCase());
+      default:
+        return true;
     }
-  }, [currentTab]);
+  })
+  .sort((a, b) => {
+    const aTimestamp = a.createDate ? new Date(a.createDate).getTime() : Number(a.maturityTime) * 1000;
+    const bTimestamp = b.createDate ? new Date(b.createDate).getTime() : Number(b.maturityTime) * 1000;
+
+    return bTimestamp - aTimestamp; 
+  })
+  .slice(indexOfFirstContract, indexOfLastContract);
+
 
   const fetchMarketResults = async () => {
     const provider = new ethers.providers.Web3Provider(window.ethereum);
@@ -1418,7 +1378,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
             }}
           >
             <HStack spacing={4}>
-              {['All Markets', 'Most recent', 'Quests', 'Results', 'My Markets', 'My Holdings'].map((tab) => (
+              {['All Markets', 'Quests', 'Results', 'My Markets', 'My Holdings'].map((tab) => (
                 <Button
                   key={tab}
                   size="md"

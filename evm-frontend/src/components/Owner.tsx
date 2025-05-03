@@ -26,11 +26,11 @@ interface Coin {
   priceFeedAddress: string; // The address of the price feed for the coin
 }
 
-// Constant for converting real numbers to a specific format
-const STRIKE_PRICE_MULTIPLIER = 100000000; // 10^8 - allows up to 8 decimal places
+  // Constant for converting real numbers to a specific format
+  const STRIKE_PRICE_MULTIPLIER = 100000000; // 10^8 - allows up to 8 decimal places
 
-// Owner component: Allows users to create and manage binary option markets
-const Owner: React.FC<OwnerProps> = ({ address }) => {
+  // Owner component: Allows users to create and manage binary option markets
+  const Owner: React.FC<OwnerProps> = ({ address }) => {
   // Authentication context for wallet connection and balance
   const { isConnected, walletAddress, balance, connectWallet, refreshBalance } = useAuth();
 
@@ -814,23 +814,70 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
           borderRadius="lg"
           border="1px solid rgba(255,255,255,0.1)"
           w="full"
-          justify="space-between"
+          justify="flex-end"
           position="sticky"
           top={0}
           zIndex={10}
         >
-          <HStack>
-            <Icon as={FaWallet as React.ElementType} color="white" />
-            <Text color="white">{shortenAddress(walletAddress)}</Text>
-          </HStack>
-          <HStack>
-            <Icon as={FaEthereum as React.ElementType} color="white" />
-            <Text color="white">{parseFloat(balance).toFixed(4)} ETH</Text>
+          <Box
+            p="3px"
+            borderRadius="md"
+            bg="transparent"
+            sx={{
+              backgroundImage: "linear-gradient(270deg, #ff0059, #5a73d8, #7a1d3d , #ed1560, #4a63c8,#701170 )",
+              backgroundSize: "400% 400%",
+              animation: "gradient-border 8s ease infinite",
+              borderRadius: "8px"
+            }}
+          >
+            <HStack
+              p={2}
+              bg="#0a1647"
+              borderRadius="md"
+              w="full"
+            >
+              <Text color="white" fontWeight="medium">
+                {parseFloat(balance).toFixed(4)} ETH
+              </Text>
+            </HStack>
+          </Box>
+          <HStack
+            p={2}
+            bg="#0a1647"
+            borderRadius="md"
+            w="auto"  // Adjust width to fit content
+          >
+
+            <Box
+              p="3px"
+              borderRadius="md"
+              color="white"
+              bg="transparent"
+              fontSize="md"
+              sx={{
+                backgroundImage: "linear-gradient(270deg, #ffcc00, #f49a24, #e25375, #eff780, #f2f2cd)",
+                backgroundSize: "400% 400%",
+                animation: "gradient-border 6s ease infinite",
+                display: "inline-block",
+                borderRadius: "8px",
+              }}
+            >
+              <HStack
+                p={2}
+                bg="#0a1647"
+                borderRadius="md"
+                w="full"
+              >
+                <Text color="white" fontWeight="medium">
+                  {shortenAddress(walletAddress)}
+                </Text>
+              </HStack>
+            </Box>
           </HStack>
         </HStack>
       )}
 
-      <VStack spacing={8} p={8}>
+      <VStack spacing={8} p={3}>
         {!isConnected ? (
           // Wallet connection button shown when not connected
           <Button
@@ -841,7 +888,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
             fontSize="xl"
             fontWeight="bold"
             w="500px"
-            p={6}
+            p={3}
             _hover={{
               bg: 'rgba(255,255,255,0.1)',
               transform: 'translateY(-2px)'

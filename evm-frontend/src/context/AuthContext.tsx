@@ -122,9 +122,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [walletAddress]);
 
-  /**
-   * Tự động cập nhật số dư mỗi block mới
-   */
   useEffect(() => {
     if (isConnected && typeof window.ethereum !== 'undefined') {
       const provider = new ethers.providers.Web3Provider(window.ethereum);

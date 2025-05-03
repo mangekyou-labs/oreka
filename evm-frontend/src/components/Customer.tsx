@@ -578,6 +578,31 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   };
 
+  const fetchUserPositions = useCallback(async () => {
+    if (!contract || !walletAddress) return;
+  
+    try {
+      const [long, short] = await Promise.all([
+        contract.longBids(walletAddress),
+        contract.shortBids(walletAddress)
+      ]);
+  
+      setUserPositions({
+        long: parseFloat(ethers.utils.formatEther(long)),
+        short: parseFloat(ethers.utils.formatEther(short))
+      });
+    } catch (err) {
+      console.error("Error fetching user positions:", err);
+    }
+  }, [contract, walletAddress]);
+
+
+  useEffect(() => {
+    fetchUserPositions();
+  }, [fetchUserPositions, walletAddress]);
+  
+  
+
   /**
    * Function to check market result
    */
@@ -1112,7 +1137,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
           // Get strikePrice
           const oracleDetails = await contract.oracleDetails();
           const strikePriceRaw = oracleDetails.strikePrice;
-          const strikePriceFormatted = (parseInt(strikePriceRaw.toString()) / 10 ** 8).toFixed(2);
+          const strikePriceFormatted = (parseInt(strikePriceRaw.toString()) / 10 ** 8).toFixed(4);
           setStrikePrice(strikePriceFormatted);
           setCurrentPhase(phase);
           setMaturityTime(maturityTime.toNumber());
@@ -1890,15 +1915,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               </Text>
             </HStack>
 
-            {/* Inject CSS animation */}
-            {/* <style jsx>{`
-                  @keyframes gradient-border {
-                    0% { background-position: 0% 50%; }
-                    50% { background-position: 100% 50%; }
-                    100% { background-position: 0% 50%; }
-                  }
-                `}
-            </style> */}
           </Box>
 
           {/* Wallet Address Box */}
@@ -1931,13 +1947,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               </Text>
             </Box>
 
-            {/* <style jsx>{`
-              @keyframes gradient-border {
-                0% { background-position: 0% 50%; }
-                50% { background-position: 100% 50%; }
-                100% { background-position: 0% 50%; }
-              }
-            `}</style> */}
           </Box>
 
         </HStack>
