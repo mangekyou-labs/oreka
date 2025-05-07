@@ -110,13 +110,49 @@ actor Factory {
 
     // Transform function for HTTP responses
     public query func transform(args: TransformArgs): async HttpResponsePayload {
-        {
-            status = args.response.status;
-            body = args.response.body;
-            headers = Array.filter<HttpHeader>(args.response.headers, func(h) {
-                h.name != "Set-Cookie" and h.name != "set-cookie"
-            });
-        }
+//        {
+//            status = args.response.status;
+//            body = args.response.body;
+//            headers = Array.filter<HttpHeader>(args.response.headers, func(h) {
+//                h.name != "Set-Cookie" and h.name != "set-cookie"
+//            });
+//        }
+
+        // 1) List every header that may differ across replicas
+        let dynamicHeaders = [
+            "Date", "ETag", "Retry-After", "Server",
+            "Transfer-Encoding", "Content-Length",
+            "Content-Encoding", "Set-Cookie", "set-cookie"
+        ];
+
+        // 2) Helper: check if a name is in that list
+        func isDynamic(name: Text): Bool {
+            for (headerName in dynamicHeaders.vals()) {
+                if (headerName == name) {
+                    return true;
+                };
+            };
+            return false;
+        };
+
+        // 3) Filter out dynamic headers
+        let filtered = Array.filter<HttpHeader>(args.response.headers, func(h) {
+            not isDynamic(h.name)
+        });
+
+        // 4) Normalize error bodies (e.g. 429) to empty
+        let body = if (args.response.status == 429) {
+            [] // Empty array of Nat8
+        } else {
+            args.response.body
+        };
+
+        // 5) Return only status, normalized body, and stable headers
+        return {
+            status  = args.response.status;
+            body    = body;
+            headers = [];
+        };
     };
     
     // Function to fetch WASM module from GitHub
@@ -134,7 +170,7 @@ actor Factory {
             Cycles.add(230_949_972_000);
 
             // GitHub URL for binary option market WASM
-            let wasmUrl = "https://raw.githubusercontent.com/mangekyou-labs/oreka/refactor/icp-market-views/canisters/binary_option_market/build/BinaryOptionMarket.wasm";
+            let wasmUrl = "https://raw.githubusercontent.com/mangekyou-labs/oreka/refactor/icp-market-views/canisters/binary_option_market/build/binary_option_market.wasm";
 
             let transform_context : TransformContext = {
                 function = transform;
@@ -143,9 +179,10 @@ actor Factory {
 
             let request : HttpRequestArgs = {
                 url = wasmUrl;
-                max_response_bytes = ?2_000_000; // 2MB limit based on IC constraints
+                max_response_bytes = ?500_000; // 2MB limit based on IC constraints
                 headers = [
-                    { name = "User-Agent"; value = "IC-Factory-Canister" }
+                    { name = "User-Agent"; value = "my-agent/1.0" },
+                    { name = "Accept-Encoding"; value = "identity" }  // disable compression
                 ];
                 body = null;
                 method = #get;
@@ -264,7 +301,7 @@ actor Factory {
             };
             
             // Add cycles for new canister creation
-            let requiredCycles = 2_000_000_000_000; // 2T cycles for market canister
+            let requiredCycles = 2_200_000_000_000; // 2T cycles for market canister
             Debug.print("Adding " # Nat.toText(requiredCycles) # " cycles for canister creation");
             Cycles.add(requiredCycles);
             
@@ -320,7 +357,7 @@ actor Factory {
                     trading_pair,     // text
                     feePercentage,    // nat
                     Principal.toText(canister_id),  // canister ID as text
-                    "bkyz2-fmaaa-aaaaa-qaaaq-cai",  // ledger ID as text
+                    "ryjl3-tyaaa-aaaaa-aaaba-cai",  // ledger ID as text
                     Principal.toText(caller)        // owner as text
                 );
                 

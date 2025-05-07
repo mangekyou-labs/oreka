@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@orally-network/solidity-sdk/IOrallyVerifierOracle.sol";
-import "@orally-network/solidity-sdk/OrallyStructs.sol";
+import "./orally-sdk/IOrallyVerifierOracle.sol";
+import "./orally-sdk/OrallyStructs.sol";
 
 contract YourDappContract {
     IOrallyVerifierOracle oracle;

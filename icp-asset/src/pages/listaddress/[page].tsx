@@ -2,7 +2,8 @@ import { useRouter } from 'next/router';
 import ListAddressOwner from '../../components/ListAddressOwner';
 import { useEffect, useState } from 'react';
 import { AuthClient } from '@dfinity/auth-client';
-import { Box, Center, Spinner, Text, Button, VStack } from '@chakra-ui/react';
+import { Box, Center, Spinner, Text, Button, VStack, HStack, useToast, IconButton } from '@chakra-ui/react';
+import { CopyIcon } from '@chakra-ui/icons';
 
 const ListAddressPage = () => {
     const router = useRouter();
@@ -10,6 +11,32 @@ const ListAddressPage = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [principal, setPrincipal] = useState("");
+    const toast = useToast();
+
+    // Copy principal to clipboard
+    const copyPrincipalToClipboard = () => {
+        if (principal) {
+            navigator.clipboard.writeText(principal)
+                .then(() => {
+                    toast({
+                        title: "Principal copied to clipboard",
+                        status: "success",
+                        duration: 2000,
+                        isClosable: true,
+                    });
+                    console.log("Principal copied to clipboard:", principal);
+                })
+                .catch(err => {
+                    console.error("Failed to copy principal:", err);
+                    toast({
+                        title: "Failed to copy principal",
+                        status: "error",
+                        duration: 2000,
+                        isClosable: true,
+                    });
+                });
+        }
+    };
 
     // Handle login click
     const handleLogin = async () => {
@@ -28,6 +55,12 @@ const ListAddressPage = () => {
             await authClient.login({
                 identityProvider: iiUrl,
                 onSuccess: () => {
+                    // Log principal after login before page reload
+                    const identity = authClient.getIdentity();
+                    const principalId = identity.getPrincipal().toText();
+                    console.log("PRINCIPAL ID AFTER LOGIN:", principalId);
+                    console.dir({ principalId });
+
                     // Refresh the page after successful login
                     window.location.reload();
                 }
@@ -46,7 +79,17 @@ const ListAddressPage = () => {
 
                 if (authenticated) {
                     const identity = authClient.getIdentity();
-                    setPrincipal(identity.getPrincipal().toText());
+                    const principalId = identity.getPrincipal().toText();
+                    setPrincipal(principalId);
+
+                    // Log principal to console - this will be visible in both development and production
+                    console.log("CURRENT USER PRINCIPAL ID:", principalId);
+                    console.dir({ principalId });
+
+                    // Log principal again with different format to ensure visibility
+                    console.log("=== PRINCIPAL ID ===");
+                    console.log(principalId);
+                    console.log("===================");
                 }
 
                 setIsLoading(false);
@@ -98,6 +141,28 @@ const ListAddressPage = () => {
 
     return (
         <Box pt={4} pb={10}>
+            {/* Principal display and copy button */}
+            <Box bg="#4a63c8" p={4} mb={4} borderRadius="md">
+                <HStack spacing={4} justify="space-between">
+                    <Text color="white" fontWeight="bold">
+                        Your Principal ID:
+                    </Text>
+                    <HStack>
+                        <Text color="white" fontFamily="monospace">
+                            {principal}
+                        </Text>
+                        <Button
+                            leftIcon={<CopyIcon />}
+                            onClick={copyPrincipalToClipboard}
+                            colorScheme="whiteAlpha"
+                            size="sm"
+                        >
+                            Copy
+                        </Button>
+                    </HStack>
+                </HStack>
+            </Box>
+
             <ListAddressOwner ownerAddress={principal} page={finalPage} />
         </Box>
     );

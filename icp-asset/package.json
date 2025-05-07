@@ -9,7 +9,7 @@
     "predev": "npm run generate-env",
     "prebuild": "npm run generate-env",
     "dev": "next dev",
-    "build": "next build",
+    "build": "rm -rf out && NODE_ENV=production DFX_NETWORK=ic next build && next export",
     "start": "next start",
     "lint": "next lint"
   },
@@ -36,7 +36,7 @@
     "axios": "^0.27.2",
     "buffer": "^6.0.3",
     "compressorjs": "^1.2.1",
-    "date-fns": "^4.1.0",
+    "date-fns": "^3.3.1",
     "ethers": "^5.6.8",
     "events": "^3.3.0",
     "framer-motion": "^6",

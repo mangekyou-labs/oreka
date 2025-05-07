@@ -24,10 +24,11 @@ import TrieMap "mo:base/TrieMap";
 
 import Cycles "mo:base/ExperimentalCycles";
 
-import IcpLedger "canister:icp_ledger_canister";
+// Use interfaces instead of direct imports
+import ICRC "./ICRC";
 
 import Types "Types";
-import ICRC "./ICRC";
+// import ICRC "./ICRC";
 
 /// @title Binary Option Market
 /// @notice A decentralized binary options trading platform
@@ -41,6 +42,9 @@ shared(msg) actor class BinaryOptionMarket(
     initLedgerId: Text, 
     initOwner: Text
 ) = self {
+
+    // Create the ICP ledger actor reference using the provided ledger ID
+    private let icpLedgerActor : ICRC.Actor = actor(initLedgerId);
 
     // ============ Type Declarations ============
 
@@ -382,7 +386,7 @@ shared(msg) actor class BinaryOptionMarket(
         };
 
         // Verify that the user has transferred the tokens
-        let balance = await IcpLedger.icrc1_balance_of({
+        let balance = await icpLedgerActor.icrc1_balance_of({
             owner = CANISTER_PRINCIPAL;
             subaccount = null;
         });
@@ -590,7 +594,7 @@ shared(msg) actor class BinaryOptionMarket(
 
     /// @notice Gets the contract's ICP balance
     public func getContractBalance() : async Nat {
-        let balance = await IcpLedger.icrc1_balance_of({ 
+        let balance = await icpLedgerActor.icrc1_balance_of({ 
             owner = CANISTER_PRINCIPAL; 
             subaccount = null 
         });
@@ -715,7 +719,7 @@ shared(msg) actor class BinaryOptionMarket(
         );
 
         try {
-            let transferResult = await IcpLedger.icrc1_transfer(args);
+            let transferResult = await icpLedgerActor.icrc1_transfer(args);
             switch (transferResult) {
                 case (#Err(transferError)) {
                     return #err("Couldn't transfer funds:\n" # debug_show (transferError));
@@ -734,7 +738,7 @@ shared(msg) actor class BinaryOptionMarket(
         };
         
         try {
-            let token = IcpLedger;
+            let token = icpLedgerActor;
             let balances = which_balances(LEDGER_PRINCIPAL);
 
             let transfer_result = await token.icrc2_transfer_from({

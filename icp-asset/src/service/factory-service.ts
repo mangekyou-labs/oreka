@@ -37,7 +37,7 @@ export class FactoryService implements IFactoryService {
                 throw new Error("Factory canister ID not found in environment variables");
             }
 
-            const host = process.env.NEXT_PUBLIC_IC_HOST || "https://ic0.app";
+            const host = process.env.NEXT_PUBLIC_IC_HOST || "https://a4gq6-oaaaa-aaaab-qaa4q-cai.raw.icp0.io";
             const agent = new HttpAgent({ host });
 
             // Only fetch the root key in development

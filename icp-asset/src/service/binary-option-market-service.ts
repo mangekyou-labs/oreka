@@ -118,7 +118,7 @@ export class BinaryOptionMarketService extends BaseMarketService implements IBin
                         host: process.env.NEXT_PUBLIC_IC_HOST || "http://localhost:4943",
                     });
 
-                    // Only fetch the root key in development
+                    // We need to fetch root key in development environments
                     if (process.env.NODE_ENV !== 'production') {
                         await agent.fetchRootKey().catch(err => {
                             console.warn('Unable to fetch root key. Check to ensure local replica is running');

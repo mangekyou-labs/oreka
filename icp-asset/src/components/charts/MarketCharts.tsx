@@ -547,7 +547,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                                 dataKey="longPercentage"
                                 stroke="#00D7B5"
                                 strokeWidth={2}
-                                dot={renderPositionDot}
+                                dot={false}
                                 activeDot={{ r: 6, stroke: '#00D7B5', strokeWidth: 2 }}
                                 name="LONG"
                             />
@@ -556,7 +556,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                                 dataKey="shortPercentage"
                                 stroke="#FF6384"
                                 strokeWidth={2}
-                                dot={renderPositionDot}
+                                dot={false}
                                 activeDot={{ r: 6, stroke: '#FF6384', strokeWidth: 2 }}
                                 name="SHORT"
                             />

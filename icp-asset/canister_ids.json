@@ -1,14 +1,14 @@
 {
   "binary_option_market": {
-    "ic": "xa7xd-niaaa-aaaam-adwfq-cai"
+    "ic": "ttu5e-zqaaa-aaaar-qblba-cai"
   },
-  "invoice_canister": {
-    "ic": "xvygo-maaaa-aaaam-adwga-cai"
+  "factory": {
+    "ic": "t2xwy-pyaaa-aaaar-qblaq-cai"
   },
   "icp_ledger_canister": {
     "ic": "ryjl3-tyaaa-aaaaa-aaaba-cai"
   },
-  "internet_identity": {
-    "ic": "rdmx6-jaaaa-aaaaa-aaadq-cai"
+  "invoice_canister": {
+    "ic": "xvygo-maaaa-aaaam-adwga-cai"
   }
 }

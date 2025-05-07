@@ -30,7 +30,8 @@
       "source": [
         "icp-asset/out"
       ],
-      "type": "assets"
+      "type": "assets",
+      "build": "cd icp-asset && NODE_ENV=production DFX_NETWORK=ic npm run build"
     },
     "icp_ledger_canister": {
       "type": "custom",

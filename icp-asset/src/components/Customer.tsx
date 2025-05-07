@@ -20,6 +20,7 @@ import { format } from 'date-fns';
 import { PriceService, PriceData } from '../service/price-service';
 import MarketCharts from './charts/MarketCharts';
 import { CheckIcon } from '@chakra-ui/icons';
+import { II_CONFIG, getInternetIdentityUrl } from '../configs/internet-identity.config';
 
 // Add typings import for ICRC1 Account
 import type { Account as ICRC1Account } from '../service/icp-ledger-service';
@@ -393,25 +394,79 @@ function Customer({ contractAddress }: CustomerProps) {
     }, []);
 
     const signIn = async () => {
-        const authClient = await AuthClient.create();
+        try {
+            console.log("Starting sign-in process");
 
-        const internetIdentityUrl = (process.env.NODE_ENV == "production")
-            ? `https://identity.ic0.app` :
-            `http://${process.env.NEXT_PUBLIC_INTERNET_IDENTITY_CANISTER_ID}.localhost:4943`;
+            // Create auth client with explicit options for handling II in production
+            const authClient = await AuthClient.create(II_CONFIG.AUTH_CLIENT_OPTIONS);
+            console.log("Auth client created successfully");
 
-        await new Promise((resolve) => {
-            authClient.login({
-                identityProvider: internetIdentityUrl,
-                onSuccess: () => resolve(undefined),
+            // Configure Internet Identity URL with proper fallback
+            const isProduction = process.env.NODE_ENV === "production";
+            const internetIdentityUrl = getInternetIdentityUrl();
+
+            console.log(`Using Internet Identity URL: ${internetIdentityUrl} (production: ${isProduction})`);
+
+            // When in production, ensure delegation verification works correctly
+            if (isProduction) {
+                console.log("Setting up production-specific configurations for II");
+                // Ensure the agent used by auth-client will work with II delegations
+                // by using the main IC host for II interactions
+                (authClient as any)._agent._host = II_CONFIG.PRODUCTION_SETTINGS.HOST;
+            }
+
+            // Create a promise to handle the login flow with timeout
+            const loginPromise = new Promise<void>((resolve, reject) => {
+                // Add a timeout to prevent hanging indefinitely
+                const timeout = setTimeout(() => {
+                    reject(new Error("Login process timed out after 2 minutes"));
+                }, 120000); // 2 minutes timeout
+
+                authClient.login({
+                    identityProvider: internetIdentityUrl,
+                    onSuccess: () => {
+                        console.log("Login successful");
+                        clearTimeout(timeout);
+                        resolve();
+                    },
+                    onError: (error) => {
+                        console.error("Login error:", error);
+                        clearTimeout(timeout);
+                        reject(error);
+                    },
+                    // Add maxTimeToLive to limit delegation time for better security
+                    maxTimeToLive: II_CONFIG.PRODUCTION_SETTINGS.MAX_DELEGATION_TIME,
+                });
             });
-        });
 
-        const identity = authClient.getIdentity();
-        setActorIdentity(identity);
-        const isAuthenticated = await authClient.isAuthenticated();
-        console.log(isAuthenticated);
-        setIdentityPrincipal(identity.getPrincipal().toText())
-        setAuthenticated(isAuthenticated);
+            await loginPromise;
+
+            // Get the identity and update app state
+            const identity = authClient.getIdentity();
+            console.log("Setting actor identity");
+            setActorIdentity(identity);
+
+            const isAuthenticated = await authClient.isAuthenticated();
+            console.log("Authentication status:", isAuthenticated);
+
+            setIdentityPrincipal(identity.getPrincipal().toText());
+            setAuthenticated(isAuthenticated);
+
+            // Force refresh market details after authentication
+            if (marketService) {
+                console.log("Refreshing market details after authentication");
+                await fetchMarketDetails();
+            }
+        } catch (error) {
+            console.error("Sign-in process failed:", error);
+            toast({
+                title: "Authentication Failed",
+                description: "Unable to authenticate with Internet Identity. Please try again.",
+                status: "error",
+                duration: 5000,
+                isClosable: true,
+            });
+        }
     };
 
     useEffect(() => {
