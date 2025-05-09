@@ -27,7 +27,6 @@ import MarketCharts from './charts/MarketCharts';
 
 import { format } from 'date-fns';
 import { formatTimeToLocal, getCurrentTimestamp, getTimeRemaining } from '../utils/timeUtils';
-import { STRIKE_PRICE_MULTIPLIER } from '../utils/constants';
 import {
   getTradingPairFromPriceFeed,
   getChartSymbolFromTradingPair,
@@ -129,8 +128,9 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const [bidAmount, setBidAmount] = useState("");
   const [currentPhase, setCurrentPhase] = useState<Phase>(Phase.Trading);
   const [totalDeposited, setTotalDeposited] = useState(0);
-  const [strikePrice, setStrikePrice] = useState<string>('');
-  const [finalPrice, setFinalPrice] = useState<string>('');
+  const [strikePriceRaw, setStrikePriceRaw] = useState<string | null>(null);
+  const [strikePrice, setStrikePrice] = useState<number|null>(null);
+  const [finalPrice, setFinalPrice] = useState<number | null>(null);
   const [showClaimButton, setShowClaimButton] = useState(false);
   const [reward, setReward] = useState(0);
   const [feeAmount, setFeeAmount] = useState(0);
@@ -271,6 +271,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
           setResolveTime(parsedData.resolveTime);
           setPositions(parsedData.positionData);
           setPositionHistory(parsedData.initialPositionHistory || []);
+          setEnhancedPositionData(parsedData.initialPositionHistory || []);
           setFeePercentage(parsedData.feePercentage);
           setIsOwner(parsedData.isOwner);
           setTotalDeposited(parseFloat(parsedData.totalDeposited || "0"));
@@ -288,7 +289,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       }
     }
 
-    // Nếu không hợp lệ thì mới fetch lại
     fetchMarketDetails();
   }, []);
 
@@ -382,10 +382,65 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   }, [contractAddress]);
 
-  const formatTradingPairForApi = (pair: string): string => {
-    return pair.replace('/', '-');
-  };
+  useEffect(() => {
+    if (oracleDetails) {
+      setStrikePriceRaw(oracleDetails.strikePrice.toString());
+    }
+  }, [oracleDetails]);
 
+  useEffect(() => {
+    if (strikePriceRaw) {
+         setStrikePrice(parseInt(strikePriceRaw)/1e8);
+      }
+    }, [strikePriceRaw]);
+
+    
+    useEffect(() => {
+      if (finalPrice !== null && strikePrice !== null) {
+        
+      }
+    }, [finalPrice, strikePrice]);
+
+    useEffect(() => {
+      if (strikePriceRaw) {
+        const formattedStrikePrice = parseInt(strikePriceRaw) / 1e8;
+        setStrikePrice(formattedStrikePrice);
+        localStorage.setItem('strikePrice', formattedStrikePrice.toString()); 
+      }
+    }, [strikePriceRaw]);
+
+
+    
+    useEffect(() => {
+      if (finalPrice !== null) {
+        localStorage.setItem('finalPrice', finalPrice.toString()); 
+      }
+    }, [finalPrice]);
+    
+    useEffect(() => {
+      
+      const storedStrikePrice = localStorage.getItem('strikePrice');
+      const storedFinalPrice = localStorage.getItem('finalPrice');
+      console.log("Stored Strike Price:", storedStrikePrice); 
+      console.log("Stored Final Price:", storedFinalPrice); 
+    
+      if (storedStrikePrice) {
+        setStrikePrice(parseFloat(storedStrikePrice)); 
+      }
+    
+      if (storedFinalPrice) {
+        setFinalPrice(parseFloat(storedFinalPrice)); 
+      }
+    }, []);
+    
+    
+    useEffect(() => {
+      return () => {
+        localStorage.removeItem('strikePrice');
+        localStorage.removeItem('finalPrice');
+      };
+    }, []);
+  
   /**
    * Function to fetch market details and update state
    */
@@ -499,7 +554,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       // Update strikePrice - convert from integer (stored in blockchain) to float
       //const oracleDetails = await contract.oracleDetails();
       const strikePriceRaw = oracleDetails.strikePrice;
-      const strikePriceFormatted = (parseInt(strikePriceRaw.toString()) / 10 ** 8).toFixed(4);
+      const strikePriceFormatted = parseInt(oracleDetails.strikePrice.toString())/1e8;
       setStrikePrice(strikePriceFormatted);
 
       setMaturityTime(maturityTime.toNumber());
@@ -521,7 +576,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
       // Get finalPrice from oracleDetails when at phase Maturity or Expiry
       if (phase === Phase.Maturity || phase === Phase.Expiry) {
-        const finalPriceFormatted = (parseInt(oracleDetails.finalPrice.toString()) / 10 ** 8).toFixed(4);
+        const finalPriceFormatted = parseInt(oracleDetails.finalPrice.toString()) / 1e8;
         setFinalPrice(finalPriceFormatted);
       }
 
@@ -580,13 +635,13 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
   const fetchUserPositions = useCallback(async () => {
     if (!contract || !walletAddress) return;
-  
+
     try {
       const [long, short] = await Promise.all([
         contract.longBids(walletAddress),
         contract.shortBids(walletAddress)
       ]);
-  
+
       setUserPositions({
         long: parseFloat(ethers.utils.formatEther(long)),
         short: parseFloat(ethers.utils.formatEther(short))
@@ -600,8 +655,8 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   useEffect(() => {
     fetchUserPositions();
   }, [fetchUserPositions, walletAddress]);
-  
-  
+
+
 
   /**
    * Function to check market result
@@ -1137,7 +1192,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
           // Get strikePrice
           const oracleDetails = await contract.oracleDetails();
           const strikePriceRaw = oracleDetails.strikePrice;
-          const strikePriceFormatted = (parseInt(strikePriceRaw.toString()) / 10 ** 8).toFixed(4);
+          const strikePriceFormatted = parseInt(oracleDetails.strikePrice.toString())/1e8;
           setStrikePrice(strikePriceFormatted);
           setCurrentPhase(phase);
           setMaturityTime(maturityTime.toNumber());
@@ -1350,6 +1405,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       setIsWithdrawing(false);
       setContractBalance(0);
       setFeeAmount(0);
+      localStorage.removeItem('contractData');
 
       toast({
         title: "Success",
@@ -1733,7 +1789,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         const feePercentage = feePercentageResult.toNumber();
 
         // update state
-        setStrikePrice(strikePrice.toString());
+        setStrikePrice(strikePrice);
         setMaturityTime(maturityTime);
         setTradingPair(tradingPair);
         setCurrentPhase(currentPhase);
@@ -1750,6 +1806,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         localStorage.setItem('contractData', JSON.stringify({
           address: contract.address,
           strikePrice: strikePrice.toString(),
+          finalPrice: finalPrice.toString(),
           maturityTime: maturityTime.toString(),
           tradingPair: tradingPair,
           phase: currentPhase.toString(),
@@ -1816,7 +1873,12 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const strikeColor = bgColors[indexBg % bgColors.length];
 
 
-
+  const formattedPrices = useMemo(() => {
+    if (!oracleDetails) return { strikePrice: '0.00' };
+    const strikePriceFormatted = (parseInt(oracleDetails.strikePrice.toString()) / 1e8).toFixed(2);
+  
+    return { strikePrice: strikePriceFormatted};
+  }, [oracleDetails, currentPhase]);
 
 
   return (
@@ -2087,7 +2149,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                     chartData={[]}
                     positionHistory={positionHistory}
                     positions={positions}
-                    strikePrice={parseFloat(strikePrice)}
+                    strikePrice={(strikePrice)}
                     timeRange={positionTimeRange}
                     chartType="position"
                     onTimeRangeChange={handleTimeRangeChange}
@@ -2106,7 +2168,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                     chartData={chartData}
                     positionHistory={positionHistory}
                     positions={positions}
-                    strikePrice={parseFloat(strikePrice)}
+                    strikePrice={(strikePrice)}
                     timeRange={priceTimeRange}
                     chartType="price"
                     onTimeRangeChange={handleTimeRangeChange}
@@ -2213,30 +2275,34 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
             <Flex justify="space-between" align="center" textAlign="center" fontSize="20px" color="#FEDF56">
               <HStack justify="center" align="center">
                 <Text color="gray.400">Strike Price: </Text>
-                <Text fontWeight="bold">{strikePrice} USD</Text>
+                <Skeleton isLoaded={strikePrice !== null}>
+                  <Text fontWeight="bold">
+                    {formattedPrices.strikePrice} USD
+                  </Text>
+                </Skeleton>
               </HStack>
             </Flex>
 
             {/* Show Final Price in Maturity and Expiry phases */}
             {(currentPhase === Phase.Maturity || currentPhase === Phase.Expiry) && (
-              <Flex justify="space-between" align="center" mt={2} textAlign="center" fontSize="20px" color="#FEDF56">
-                <HStack justify="center" align="center">
-                  <Text color="gray.400">Final Price: </Text>
-                  {finalPrice > strikePrice ? (
-                    <>
-                      <Text fontWeight="bold" color="green">{finalPrice} </Text>
-                      <Text fontWeight="bold" color="#FEDF56">USD</Text>
-                    </>
-                  ) : (
-                    <>
-                      <Text fontWeight="bold" color="red">{finalPrice} </Text>
-                      <Text fontWeight="bold" color="#FEDF56">USD</Text>
-                    </>
-                  )}
+              <Flex justify="space-between" align="center" mt={2}>
+                <HStack>
+                  <Skeleton isLoaded={finalPrice !== null && formattedPrices.strikePrice !== null}>
+                    <HStack fontSize="20px">
+                      <Text color="gray.400" >Final Price:</Text>
+                      {finalPrice !== null && formattedPrices.strikePrice !== null ? (
+                        <>
+                          <Text fontWeight="bold" color={finalPrice > Number(formattedPrices.strikePrice) ? 'green' : 'red'}>
+                            {finalPrice.toFixed(4)}
+                          </Text>
+                          <Text fontWeight="bold" color="#FEDF56">USD</Text>
+                        </>
+                      ) : null}
+                    </HStack>
+                  </Skeleton>
                 </HStack>
               </Flex>
             )}
-
             {reward > 0 && currentPhase === Phase.Expiry && (
               <Button
                 onClick={claimReward}
@@ -2251,7 +2317,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                 Claim {reward.toFixed(5)} ETH
               </Button>
             )}
-            {isOwner && feeAmount > 0 && currentPhase === Phase.Expiry && (
+            {isOwner && feeAmount > 0 && currentPhase === Phase.Expiry && isWithdrawing && (
               <Button
                 onClick={handleWithdraw}
                 colorScheme="yellow"
@@ -2487,7 +2553,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               rightIcon={FaChevronRight as unknown as JSX.Element}
               _hover={{ bg: 'rgba(254, 223, 86, 0.1)' }}
             >
-              Make your first Prediction Market
+               Make your first Prediction Market
             </Button>
           </Box>
 

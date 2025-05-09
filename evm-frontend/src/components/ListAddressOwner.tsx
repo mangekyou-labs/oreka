@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ethers } from 'ethers';
 import { Box, Button, HStack, Icon, Text, VStack, SimpleGrid, Flex, Input, Select, Divider, Progress, InputGroup, InputRightAddon, Spinner, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip, Spacer, Image, InputRightElement } from '@chakra-ui/react';
 
@@ -31,7 +31,7 @@ interface ListAddressOwnerProps {
 
 interface ContractData {
   address: string;
-  createDate: string;
+  deployTime: number;
   longAmount: string;
   shortAmount: string;
   strikePrice: string;
@@ -145,50 +145,62 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       setCurrentTab(currentTabQuery);
     }
   }, [currentTabQuery]);
-  
+
   const indexOfLastContract = page * contractsPerPage;
-const indexOfFirstContract = indexOfLastContract - contractsPerPage;
+  const indexOfFirstContract = indexOfLastContract - contractsPerPage;
 
-const filteredContracts = deployedContracts
-  .filter(contract => {
-    const contractTimestamp = contract.createDate
-      ? new Date(contract.createDate).getTime()
-      : Number(contract.maturityTime) * 1000;
+  const filteredContracts = useMemo(() => {
+    const filtered = deployedContracts.filter(contract => {
+      switch (currentTab) {
+        case 'All Markets':
+          return true;
+        case 'Quests':
+          return (
+            (Number(contract.phase) === Phase.Trading || Number(contract.phase) === Phase.Bidding) &&
+            Date.now() < Number(contract.maturityTime) * 1000
+          );
+        case 'Results':
+          return Number(contract.phase) === Phase.Maturity || Number(contract.phase) === Phase.Expiry;
+        case 'Pair':
+          return currentTradingPairFilter
+            ? contract.tradingPair === currentTradingPairFilter
+            : true;
+        case 'My Markets':
+          return contract.owner.toLowerCase() === walletAddress?.toLowerCase();
+        case 'My Holdings':
+          return userHoldingsContracts.includes(contract.address.toLowerCase());
+        default:
+          return true;
+      }
+    });
 
-    switch (currentTab) {
-      case 'All Markets':
-        return true;
-      case 'Quests':
-        return (
-          (Number(contract.phase) === Phase.Trading || Number(contract.phase) === Phase.Bidding) &&
-          Math.floor(Date.now()) < Number(contract.maturityTime) * 1000
-        );
-      case 'Results':
-        return Number(contract.phase) === Phase.Maturity || Number(contract.phase) === Phase.Expiry;
-      case 'Pair':
-        return currentTradingPairFilter ? contract.tradingPair === currentTradingPairFilter : true;
-      case 'My Markets':
-        return contract.owner.toLowerCase() === walletAddress?.toLowerCase();
-      case 'My Holdings':
-        return userHoldingsContracts.includes(contract.address.toLowerCase());
-      default:
-        return true;
-    }
-  })
-  .sort((a, b) => {
-    const aTimestamp = a.createDate ? new Date(a.createDate).getTime() : Number(a.maturityTime) * 1000;
-    const bTimestamp = b.createDate ? new Date(b.createDate).getTime() : Number(b.maturityTime) * 1000;
+    const sorted = [...filtered].sort((a, b) => {
+      const aTimestamp = a.deployTime ? new Date(a.deployTime).getTime() : 0;
+      const bTimestamp = b.deployTime ? new Date(b.deployTime).getTime() : 0;
+      return bTimestamp - aTimestamp;
+    });
 
-    return bTimestamp - aTimestamp; 
-  })
-  .slice(indexOfFirstContract, indexOfLastContract);
+
+    return sorted;
+  }, [
+    deployedContracts,
+    currentTab,
+    currentTradingPairFilter,
+    walletAddress,
+    userHoldingsContracts,
+  ]);
+
+
+  const paginatedContracts = useMemo(() => {
+    return filteredContracts.slice(indexOfFirstContract, indexOfLastContract);
+  }, [filteredContracts, indexOfFirstContract, indexOfLastContract]);
 
 
   const fetchMarketResults = async () => {
     const provider = new ethers.providers.Web3Provider(window.ethereum);
     const results: { [key: string]: string } = {};
 
-    for (const contract of filteredContracts) {
+    for (const contract of paginatedContracts) {
       try {
         const instance = new ethers.Contract(contract.address, BinaryOptionMarket.abi, provider);
         const oracle = await instance.oracleDetails();
@@ -204,10 +216,10 @@ const filteredContracts = deployedContracts
   };
 
   useEffect(() => {
-    if (filteredContracts.length > 0) {
+    if (paginatedContracts.length > 0) {
       fetchMarketResults();
     }
-  }, [filteredContracts]);
+  }, [paginatedContracts]);
   /**
      * Fetch user holdings contracts
      */
@@ -360,13 +372,17 @@ const filteredContracts = deployedContracts
       // Fetch detailed data for each contract address
       const contractsData = await Promise.all(allContracts.map(async (address: string) => {
         const contract = new ethers.Contract(address, BinaryOptionMarket.abi, provider);
-
+        let deployTimeValue = 0;
         try {
+
+          const deployTimeBN = await contract.deployTime();
+          deployTimeValue = deployTimeBN.toNumber();
           // Get basic data from contract
           const [
             positions,
             oracleDetails,
             phase,
+            deployTime,
             maturityTimeBN,
             tradingPair,
             owner
@@ -374,6 +390,7 @@ const filteredContracts = deployedContracts
             contract.positions(),
             contract.oracleDetails(),
             contract.currentPhase(),
+            contract.deployed(),
             contract.maturityTime(),
             contract.tradingPair().catch(() => 'Unknown'),
             contract.owner()
@@ -412,6 +429,7 @@ const filteredContracts = deployedContracts
             maturityTimeValue = Math.floor(Date.now() / 1000) + 86400; // Current time + 1 day
           }
 
+
           // Diagnostic logging for maturity time validation
           const maturityDate = new Date(maturityTimeValue * 1000);
           console.log("Maturity date:", maturityDate.toISOString());
@@ -420,7 +438,7 @@ const filteredContracts = deployedContracts
 
           return {
             address,
-            createDate: new Date().toISOString(),
+            deployTime: deployTimeValue,
             longAmount: ethers.utils.formatEther(positions.long),
             shortAmount: ethers.utils.formatEther(positions.short),
             strikePrice: strikePriceBN.toString(),
@@ -435,7 +453,7 @@ const filteredContracts = deployedContracts
           console.error(`Error fetching data for contract ${address}:`, error);
           return {
             address,
-            createDate: new Date().toISOString(),
+            deployTime: deployTimeValue,
             longAmount: '0',
             shortAmount: '0',
             strikePrice: '0',
@@ -549,8 +567,6 @@ const filteredContracts = deployedContracts
       localStorage.removeItem('contractData');
       localStorage.removeItem('selectedContractAddress');
 
-
-
       // Convert necessary values to appropriate formats
       const longAmount = parseFloat(contractData.longAmount || '0');
       const shortAmount = parseFloat(contractData.shortAmount || '0');
@@ -562,6 +578,10 @@ const filteredContracts = deployedContracts
         minimumFractionDigits: 2,
         maximumFractionDigits: 4
       });
+
+      // Store finalPrice in localStorage
+      localStorage.setItem('finalPrice', formattedFinalPrice);
+
       // Determine if user address is the owner of this contract
       const isOwner = owner.toLowerCase() === walletAddress?.toLowerCase();
 
@@ -577,9 +597,6 @@ const filteredContracts = deployedContracts
       // Parse numeric value for direct use in chart
       const strikePriceNumber = parseInt(contractData.strikePrice) / 100000000;
 
-
-
-
       // Calculate bidding start time (for position chart)
       // Use 24 hours before maturity as default if not available
       const biddingStartTime = maturityTime - (24 * 60 * 60);
@@ -587,6 +604,11 @@ const filteredContracts = deployedContracts
       // Calculate resolve time for maturity phase
       // In most cases, this will be updated from blockchain on load if needed
       const resolveTime = 0; // Default value, will be updated from blockchain
+
+      const strikePriceFormatted = (parseInt(contractData.strikePrice) / 1e8).toFixed(2);
+      const finalPriceFormatted = (Number(contractData.phase) >= Phase.Maturity && contractData.finalPrice)
+        ? (parseInt(contractData.finalPrice) / 1e8).toFixed(2)
+        : 'N/A';
 
       // Create initial position history data point for chart
       const initialPositionHistory = [
@@ -652,6 +674,8 @@ const filteredContracts = deployedContracts
         completeData: true, // Flag to indicate this data is complete for Customer.tsx
         isPreloaded: true,
 
+        
+
         // Phase and time information
         phase: phaseNumber,
         currentPhase: phaseNumber, // Additional field for direct use
@@ -662,18 +686,16 @@ const filteredContracts = deployedContracts
         resolveTime: resolveTime,
         deployTime: Math.floor(Date.now() / 1000) - 86400, // Default value, will be updated
 
-
         // Price-related information
         strikePrice: formattedStrikePrice, // Raw value
         strikePriceNumber: formattedStrikePrice, // Numeric value
         finalPrice: finalPriceNumber, // raw value (numeric)
-        formattedFinalPrice: formattedFinalPrice, // for UI display
-        formattedStrikePrice: formattedStrikePrice, // For UI display
+        formattedFinalPrice: finalPriceFormatted, // for UI display
+        formattedStrikePrice: strikePriceFormatted, // For UI display
         displayStrikePrice: formattedStrikePrice, // For UI display
         currentPrice: currentPrice,
         priceDifference: priceDifference,
         percentageDifference: percentageDifference,
-
 
         // Trading pair information
         tradingPair: contractData.tradingPair,
@@ -722,22 +744,16 @@ const filteredContracts = deployedContracts
       localStorage.setItem('contractData', JSON.stringify(enhancedContractData));
       localStorage.setItem('selectedContractAddress', contractAddress);
 
-      // Navigate to customer view
-      router.push({
-        pathname: `/customer/${contractAddress}`,
-        query: { data: JSON.stringify(contractData) }  // `contract` là object từ `ContractData`
-      });
+      // Navigate to customer view with clean URL
+      router.push(`/customer/${contractAddress}`);
+
     } catch (error) {
       console.error("Error preparing contract data:", error);
       // Fallback to original behavior if error occurs
       localStorage.removeItem('contractData'); // Clear to be safe
       localStorage.setItem('selectedContractAddress', contractAddress);
-      router.push({
-        pathname: `/customer/${contractAddress}`,
-        query: {
-          data: JSON.stringify(contractData),
-        },
-      });
+      // Even in error case, use clean URL
+      router.push(`/customer/${contractAddress}`);
     }
   };
   /**
@@ -1256,7 +1272,7 @@ const filteredContracts = deployedContracts
               boxShadow="0 4px 10px rgba(0, 0, 0, 0.3)"
             >
               <Button
-                leftIcon={GrDeploy as unknown as JSX.Element }
+                leftIcon={GrDeploy as unknown as JSX.Element}
                 variant="solid"
                 color="white"
                 bg="#1A1C21"
@@ -1348,7 +1364,7 @@ const filteredContracts = deployedContracts
           </HStack>
         ) : (
           <Button
-            leftIcon={FaWallet  as unknown as JSX.Element}
+            leftIcon={FaWallet as unknown as JSX.Element}
             colorScheme="white"
             size="md"
             onClick={connectWallet}
@@ -1462,7 +1478,7 @@ const filteredContracts = deployedContracts
             spacing={4}
             width="100%"
           >
-            {filteredContracts.map(({ address, createDate, longAmount, shortAmount, strikePrice, finalPrice, phase, maturityTime, tradingPair, owner }, index) => (
+            {paginatedContracts.map(({ address, deployTime, longAmount, shortAmount, strikePrice, finalPrice, phase, maturityTime, tradingPair, owner }, index) => (
 
               <Box
                 key={index}
@@ -1481,7 +1497,7 @@ const filteredContracts = deployedContracts
                   onClick={() =>
                     handleAddressClick(address, owner, {
                       address,
-                      createDate,
+                      deployTime,
                       longAmount,
                       shortAmount,
                       strikePrice,
@@ -1684,7 +1700,7 @@ const filteredContracts = deployedContracts
           <Text color="gray.600">No contracts found for this owner.</Text>
         )}
       </Box>
-      {filteredContracts.length > 0 && (
+      {paginatedContracts.length > 0 && (
         <Flex
           justify="center"
           mt={8}
@@ -1704,7 +1720,7 @@ const filteredContracts = deployedContracts
             <Text color="white" fontWeight="bold">Page {page}</Text>
             <Button
               onClick={() => router.push(`?page=${page + 1}`)}
-              isDisabled={filteredContracts.length < contractsPerPage}
+              isDisabled={paginatedContracts.length < contractsPerPage}
               variant="outline"
               colorScheme="gray"
             >

@@ -78,7 +78,9 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
   options = { showPrice: true, showPositions: true },
   chartSymbol,
   biddingStartTime,
-  maturityTime
+  maturityTime,
+  enhancedPositionData, 
+  setEnhancedPositionData 
 }) => {
   const [currentTime, setCurrentTime] = useState<number>(Math.floor(Date.now() / 1000));
   const [isLoadingChart, setIsLoadingChart] = useState<boolean>(true);
@@ -86,7 +88,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
   const initialLoadRef = useRef<boolean>(true);
   const priceServiceRef = useRef(PriceService.getInstance());
   const [hoverData, setHoverData] = useState<any>(null);
-  const [enhancedPositionData, setEnhancedPositionData] = useState<PositionPoint[]>([]);
+  //const [enhancedPositionData, setEnhancedPositionData] = useState<PositionPoint[]>([]);
   const positionHistoryRef = useRef<PositionPoint[]>([]);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const animationFrameRef = useRef<number | null>(null);
