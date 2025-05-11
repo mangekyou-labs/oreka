@@ -175,8 +175,8 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
     });
 
     const sorted = [...filtered].sort((a, b) => {
-      const aTimestamp = a.deployTime ? new Date(a.deployTime).getTime() : 0;
-      const bTimestamp = b.deployTime ? new Date(b.deployTime).getTime() : 0;
+      const aTimestamp = a.deployTime ? new Date(a.deployTime * 1000).getTime() : 0;
+      const bTimestamp = b.deployTime ? new Date(b.deployTime * 1000).getTime() : 0;
       return bTimestamp - aTimestamp;
     });
 
@@ -674,7 +674,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
         completeData: true, // Flag to indicate this data is complete for Customer.tsx
         isPreloaded: true,
 
-        
+
 
         // Phase and time information
         phase: phaseNumber,

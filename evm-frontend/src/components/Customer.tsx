@@ -129,7 +129,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const [currentPhase, setCurrentPhase] = useState<Phase>(Phase.Trading);
   const [totalDeposited, setTotalDeposited] = useState(0);
   const [strikePriceRaw, setStrikePriceRaw] = useState<string | null>(null);
-  const [strikePrice, setStrikePrice] = useState<number|null>(null);
+  const [strikePrice, setStrikePrice] = useState<number | null>(null);
   const [finalPrice, setFinalPrice] = useState<number | null>(null);
   const [showClaimButton, setShowClaimButton] = useState(false);
   const [reward, setReward] = useState(0);
@@ -193,15 +193,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   // Query params
   const { data } = router.query;
 
-  // Memoized parsed contract data
-  const parsedContractData = useMemo(() => {
-    if (!data) return null;
-    try {
-      return JSON.parse(data as string);
-    } catch (err) {
-      return null;
-    }
-  }, [data]);
 
   useEffect(() => {
     return () => {
@@ -383,64 +374,67 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   }, [contractAddress]);
 
   useEffect(() => {
+    const sp = localStorage.getItem('strikePrice');
+    const fp = localStorage.getItem('finalPrice');
+    if (sp) setStrikePrice(parseFloat(sp));
+    if (fp) setFinalPrice(parseFloat(fp));
+  }, []);
+
+
+  useEffect(() => {
     if (oracleDetails) {
       setStrikePriceRaw(oracleDetails.strikePrice.toString());
     }
   }, [oracleDetails]);
 
+
+
+
   useEffect(() => {
-    if (strikePriceRaw) {
-         setStrikePrice(parseInt(strikePriceRaw)/1e8);
-      }
-    }, [strikePriceRaw]);
+    if (finalPrice !== null && strikePrice !== null) {
 
-    
-    useEffect(() => {
-      if (finalPrice !== null && strikePrice !== null) {
-        
-      }
-    }, [finalPrice, strikePrice]);
-
-    useEffect(() => {
-      if (strikePriceRaw) {
-        const formattedStrikePrice = parseInt(strikePriceRaw) / 1e8;
-        setStrikePrice(formattedStrikePrice);
-        localStorage.setItem('strikePrice', formattedStrikePrice.toString()); 
-      }
-    }, [strikePriceRaw]);
+    }
+  }, [finalPrice, strikePrice]);
 
 
-    
-    useEffect(() => {
-      if (finalPrice !== null) {
-        localStorage.setItem('finalPrice', finalPrice.toString()); 
-      }
-    }, [finalPrice]);
-    
-    useEffect(() => {
-      
-      const storedStrikePrice = localStorage.getItem('strikePrice');
-      const storedFinalPrice = localStorage.getItem('finalPrice');
-      console.log("Stored Strike Price:", storedStrikePrice); 
-      console.log("Stored Final Price:", storedFinalPrice); 
-    
-      if (storedStrikePrice) {
-        setStrikePrice(parseFloat(storedStrikePrice)); 
-      }
-    
-      if (storedFinalPrice) {
-        setFinalPrice(parseFloat(storedFinalPrice)); 
-      }
-    }, []);
-    
-    
-    useEffect(() => {
-      return () => {
-        localStorage.removeItem('strikePrice');
-        localStorage.removeItem('finalPrice');
-      };
-    }, []);
-  
+  useEffect(() => {
+    if (!strikePriceRaw) return;
+    const sp = parseInt(strikePriceRaw, 10) / 1e8;
+    setStrikePrice(sp);
+    localStorage.setItem('strikePrice', sp.toString());
+  }, [strikePriceRaw]);
+
+
+  useEffect(() => {
+    if (finalPrice !== null) {
+      localStorage.setItem('finalPrice', finalPrice.toString());
+    }
+  }, [finalPrice]);
+
+  useEffect(() => {
+
+    const storedStrikePrice = localStorage.getItem('strikePrice');
+    const storedFinalPrice = localStorage.getItem('finalPrice');
+    console.log("Stored Strike Price:", storedStrikePrice);
+    console.log("Stored Final Price:", storedFinalPrice);
+
+    if (storedStrikePrice) {
+      setStrikePrice(parseFloat(storedStrikePrice));
+    }
+
+    if (storedFinalPrice) {
+      setFinalPrice(parseFloat(storedFinalPrice));
+    }
+  }, []);
+
+
+  useEffect(() => {
+    return () => {
+      localStorage.removeItem('strikePrice');
+      localStorage.removeItem('finalPrice');
+    };
+  }, []);
+
   /**
    * Function to fetch market details and update state
    */
@@ -554,7 +548,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       // Update strikePrice - convert from integer (stored in blockchain) to float
       //const oracleDetails = await contract.oracleDetails();
       const strikePriceRaw = oracleDetails.strikePrice;
-      const strikePriceFormatted = parseInt(oracleDetails.strikePrice.toString())/1e8;
+      const strikePriceFormatted = parseInt(oracleDetails.strikePrice.toString()) / 1e8;
       setStrikePrice(strikePriceFormatted);
 
       setMaturityTime(maturityTime.toNumber());
@@ -1192,7 +1186,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
           // Get strikePrice
           const oracleDetails = await contract.oracleDetails();
           const strikePriceRaw = oracleDetails.strikePrice;
-          const strikePriceFormatted = parseInt(oracleDetails.strikePrice.toString())/1e8;
+          const strikePriceFormatted = parseInt(oracleDetails.strikePrice.toString()) / 1e8;
           setStrikePrice(strikePriceFormatted);
           setCurrentPhase(phase);
           setMaturityTime(maturityTime.toNumber());
@@ -1517,6 +1511,8 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       const shortAmt = parseFloat(ethers.utils.formatEther(shortAmount));
       const total = longAmt + shortAmt;
 
+
+
       let longPercentage = 50;
       let shortPercentage = 50;
 
@@ -1535,15 +1531,33 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
         // Add new point
         const newPoint = {
-          timestamp: ts,
+          // timestamp: ts,
+          // longPercentage,
+          // shortPercentage,
+          // isMainPoint: true,
+          // isFixed: false,
+          // isCurrentPoint: true
+          timestamp: Math.floor(Date.now() / 1000),
           longPercentage,
           shortPercentage,
           isMainPoint: true,
-          isFixed: false,
           isCurrentPoint: true
         };
 
-        return [...updatedHistory, newPoint];
+        const newHistory = [newPoint];
+        setPositionHistory(newHistory);
+        localStorage.setItem(positionHistoryKey, JSON.stringify(newHistory));
+
+        //return [...updatedHistory, newPoint];
+        return [
+          {
+            timestamp: biddingStartTime,
+            longPercentage: 50,
+            shortPercentage: 50,
+            isMainPoint: true,
+          },
+          newPoint
+        ];
       });
 
       // Update positions state
@@ -1876,9 +1890,11 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   const formattedPrices = useMemo(() => {
     if (!oracleDetails) return { strikePrice: '0.00' };
     const strikePriceFormatted = (parseInt(oracleDetails.strikePrice.toString()) / 1e8).toFixed(2);
-  
-    return { strikePrice: strikePriceFormatted};
+
+    return { strikePrice: strikePriceFormatted };
   }, [oracleDetails, currentPhase]);
+
+
 
 
   return (
@@ -2041,7 +2057,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                       {tradingPair}
                     </Text>
                     <Text color="white" fontSize="25px">
-                      will reach <Text as="span" color={strikeColor}>${strikePrice}</Text> by {formatMaturityTime(maturityTime)}
+                      will reach <Text as="span" color={strikeColor}>${formattedPrices.strikePrice}</Text> by {formatMaturityTime(maturityTime)}
                     </Text>
 
                   </>
@@ -2553,7 +2569,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               rightIcon={FaChevronRight as unknown as JSX.Element}
               _hover={{ bg: 'rgba(254, 223, 86, 0.1)' }}
             >
-               Make your first Prediction Market
+              Make your first Prediction Market
             </Button>
           </Box>
 
