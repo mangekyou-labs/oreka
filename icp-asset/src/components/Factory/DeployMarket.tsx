@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
     Box, Button, Typography, TextField, CircularProgress, Alert,
     Paper, Grid, Divider, Select, MenuItem, InputAdornment,
-    Slider, Tooltip, ListItem, ListItemText, List
+    Slider, Tooltip, ListItem, ListItemText, List, Input
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { FaSync, FaArrowUp, FaArrowDown, FaClock } from 'react-icons/fa';
@@ -305,9 +305,10 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
 
             console.log("Maturity date (User's timezone):", datePart.toString());
 
-            // Convert the expiry timestamp to nanoseconds
-            const expiryNanos = BigInt(datePart.valueOf()) * BigInt(1000000);
-            console.log("Expiry in nanoseconds:", expiryNanos.toString());
+            // Convert milliseconds to seconds for the canister
+            // The factory expects timestamps in seconds (not milliseconds or nanoseconds)
+            const expiryInSeconds = BigInt(Math.floor(datePart.valueOf() / 1000));
+            console.log("Expiry timestamp in seconds:", expiryInSeconds.toString());
 
             // Set deployment stage to initializing
             setDeploymentStage(1);
@@ -335,14 +336,14 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
             console.log("Calling deployMarketFinal with:", {
                 marketName,
                 strikePrice: parseFloat(strikePrice),
-                expiryNanos: expiryNanos.toString(),
+                expiryInSeconds: expiryInSeconds.toString(),
                 tradingPair
             });
 
             const result = await factoryService.deployMarketFinal(
                 marketName,
                 parseFloat(strikePrice),
-                expiryNanos,
+                expiryInSeconds,
                 tradingPair
             );
 
@@ -475,30 +476,33 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                     </Box>
 
                     <Grid container spacing={2} sx={{ mb: 3 }}>
-                        <Grid item xs={6}>
-                            <Typography color="white" fontWeight="bold" mb={1}>MATURITY DATE:</Typography>
-                            <StyledTextField
-                                fullWidth
+                        <Grid item xs={12} md={6}>
+                            <Typography color="white" fontWeight="bold" mb={1}>DATE:</Typography>
+                            <Input
                                 type="date"
                                 value={maturityDate}
                                 onChange={(e) => setMaturityDate(e.target.value)}
-                                variant="outlined"
+                                sx={{
+                                    color: 'white',
+                                    bgcolor: 'rgba(255, 255, 255, 0.05)',
+                                    borderRadius: '8px',
+                                    p: 1,
+                                    width: '100%'
+                                }}
                             />
                         </Grid>
-                        <Grid item xs={6}>
-                            <Typography color="white" fontWeight="bold" mb={1}>TIME (EST):</Typography>
-                            <StyledTextField
-                                fullWidth
+                        <Grid item xs={12} md={6}>
+                            <Typography color="white" fontWeight="bold" mb={1}>TIME:</Typography>
+                            <Input
                                 type="time"
                                 value={maturityTime}
                                 onChange={(e) => setMaturityTime(e.target.value)}
-                                variant="outlined"
-                                InputProps={{
-                                    endAdornment: (
-                                        <InputAdornment position="end">
-                                            <FaClock />
-                                        </InputAdornment>
-                                    ),
+                                sx={{
+                                    color: 'white',
+                                    bgcolor: 'rgba(255, 255, 255, 0.05)',
+                                    borderRadius: '8px',
+                                    p: 1,
+                                    width: '100%'
                                 }}
                             />
                         </Grid>
@@ -612,7 +616,7 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                             <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <Typography color="text.secondary">Maturity date</Typography>
                                 <Typography color="white">
-                                    {maturityDate || 'Not set'} {maturityTime ? `${maturityTime} (EST)` : ''}
+                                    {maturityDate || 'Not set'} {maturityTime || ''}
                                 </Typography>
                             </Box>
 

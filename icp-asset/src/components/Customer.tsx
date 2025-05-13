@@ -77,6 +77,8 @@ function Customer({ contractAddress }: CustomerProps) {
     const [tradingPair, setTradingPair] = useState<string>('ETH/USD');
     const [showRules, setShowRules] = useState<boolean>(true);
     const [marketResult, setMarketResult] = useState<string>('Pending');
+    // Store the raw timestamp for position chart functionality
+    const [rawEndTimestamp, setRawEndTimestamp] = useState<any>(null);
 
     const [availableCoins] = useState<Coin[]>([
         { value: "0x5fbdb2315678afecb367f032d93f642f64180aa3", label: "ICP/USD" },
@@ -323,10 +325,71 @@ function Customer({ contractAddress }: CustomerProps) {
                     setChartSymbol(formattedPair);
                 }
 
-                if (details.endTimestamp) {
-                    const timestamp = Number(details.endTimestamp);
-                    console.log(`End timestamp: ${timestamp} (${new Date(timestamp * 1000).toString()})`);
+                // Get end timestamp directly from the canister using dedicated method
+                try {
+                    console.log("Getting end timestamp directly via getEndTimestamp()");
+                    const rawTimestamp = await marketService.getEndTimestamp();
+                    console.log(`Raw end timestamp: ${rawTimestamp}`);
+
+                    // Store the raw timestamp for position chart
+                    setRawEndTimestamp(rawTimestamp);
+
+                    // Convert from nanoseconds to seconds if needed
+                    let timestamp: number;
+
+                    // Check if timestamp is in nanoseconds or seconds
+                    // We expect the timestamp from canister to be in nanoseconds (bigint)
+                    if (typeof rawTimestamp === 'bigint') {
+                        // This is nanoseconds from canister - convert to seconds
+                        timestamp = Number(rawTimestamp / BigInt(1_000_000_000));
+                        console.log(`Converted from nanoseconds to seconds: ${timestamp}`);
+                    } else {
+                        // If it's a number, check if it's already in seconds
+                        const rawValue = Number(rawTimestamp);
+                        if (String(rawValue).length > 13) {
+                            // This is likely nanoseconds as a number - convert to seconds
+                            timestamp = rawValue / 1_000_000_000;
+                            console.log(`Converted from numeric nanoseconds to seconds: ${timestamp}`);
+                        } else {
+                            // Already in seconds
+                            timestamp = rawValue;
+                            console.log(`Timestamp already in seconds: ${timestamp}`);
+                        }
+                    }
+
+                    console.log(`End timestamp (seconds): ${timestamp} (${new Date(timestamp * 1000).toString()})`);
                     setEndTimestamp(timestamp);
+                } catch (timestampError) {
+                    console.error("Error getting end timestamp:", timestampError);
+                    // Fallback to the value from market details if available
+                    if (details.endTimestamp) {
+                        // Store raw timestamp for position chart
+                        setRawEndTimestamp(details.endTimestamp);
+
+                        // Convert from nanoseconds to seconds if needed
+                        let timestamp: number;
+
+                        if (typeof details.endTimestamp === 'bigint') {
+                            // This is nanoseconds from canister - convert to seconds
+                            timestamp = Number(details.endTimestamp / BigInt(1_000_000_000));
+                            console.log(`Converted fallback from nanoseconds to seconds: ${timestamp}`);
+                        } else {
+                            // If it's a number, check if it's already in seconds
+                            const rawValue = Number(details.endTimestamp);
+                            if (String(rawValue).length > 13) {
+                                // This is likely nanoseconds as a number - convert to seconds
+                                timestamp = rawValue / 1_000_000_000;
+                                console.log(`Converted fallback from numeric nanoseconds to seconds: ${timestamp}`);
+                            } else {
+                                // Already in seconds
+                                timestamp = rawValue;
+                                console.log(`Fallback timestamp already in seconds: ${timestamp}`);
+                            }
+                        }
+
+                        console.log(`Using fallback end timestamp from details: ${timestamp}`);
+                        setEndTimestamp(timestamp);
+                    }
                 }
 
                 // Set bidding start time from createTimestamp
@@ -1755,28 +1818,52 @@ function Customer({ contractAddress }: CustomerProps) {
                                                 </Text>
                                             </VStack>
                                             <Spacer />
-                                            {currentPhase === Phase.Bidding && (
-                                                <Button
-                                                    onClick={async () => {
-                                                        try {
-                                                            if (marketService) {
-                                                                await marketService.resolveMarket();
-                                                                await fetchMarketDetails();
-                                                            }
-                                                        } catch (error) {
-                                                            console.error("Error resolving market:", error);
-                                                        }
-                                                    }}
-                                                    size="sm"
-                                                    colorScheme="yellow"
-                                                    bg="#FEDF56"
-                                                    color="black"
-                                                    _hover={{ bg: "#FFE56B" }}
-                                                    width="35%"
-                                                >
-                                                    Resolve
-                                                </Button>
-                                            )}
+                                            {currentPhase === Phase.Bidding && (() => {
+                                                const now = Math.floor(Date.now() / 1000);
+                                                // Allow resolving only within 6 seconds before the endTimestamp
+                                                const isCloseToEnd = endTimestamp && (endTimestamp - now <= 6 && endTimestamp - now > 0);
+                                                // If we've passed the endTimestamp and market is still in Bidding phase
+                                                const hasMissedResolution = endTimestamp && now > endTimestamp;
+
+                                                if (isCloseToEnd) {
+                                                    return (
+                                                        <Button
+                                                            onClick={async () => {
+                                                                try {
+                                                                    if (marketService) {
+                                                                        await marketService.resolveMarket();
+                                                                        await fetchMarketDetails();
+                                                                    }
+                                                                } catch (error) {
+                                                                    console.error("Error resolving market:", error);
+                                                                }
+                                                            }}
+                                                            size="sm"
+                                                            colorScheme="yellow"
+                                                            bg="#FEDF56"
+                                                            color="black"
+                                                            _hover={{ bg: "#FFE56B" }}
+                                                            width="35%"
+                                                        >
+                                                            Resolve
+                                                        </Button>
+                                                    );
+                                                } else if (hasMissedResolution) {
+                                                    return (
+                                                        <Button
+                                                            size="sm"
+                                                            colorScheme="red"
+                                                            bg="red.500"
+                                                            color="white"
+                                                            width="35%"
+                                                            isDisabled={true}
+                                                        >
+                                                            Resolve Failure
+                                                        </Button>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
                                         </HStack>
 
                                         {/* Maturity Phase */}

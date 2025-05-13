@@ -432,11 +432,19 @@ shared(msg) actor class BinaryOptionMarket(
     public shared func resolveMarket() : async () {
         // Allow anyone to call this function, not just the owner
         assert(currentPhase == #Bidding);
-
+        
+        // Get current time in nanoseconds and convert to seconds for comparison
+        let currentTimeNano = Time.now();
+        let currentTimeSec = Nat64.fromNat(Int.abs(currentTimeNano / 1_000_000_000));
+        
+        // Must be called after endTimestamp, max 6 seconds
+        assert(currentTimeSec >= initEndTimestamp);
+        assert(currentTimeSec < initEndTimestamp + 6);
+        
         let price = await get_price_for_pair();
         let finalPrice = await textToFloat(price);
         
-        resolveWithFulfilledData(finalPrice, Time.now());
+        resolveWithFulfilledData(finalPrice, currentTimeNano);
     };
 
     /// @notice Claims rewards for winning positions
@@ -776,8 +784,11 @@ shared(msg) actor class BinaryOptionMarket(
     private func get_price_for_pair() : async Text {
         let ic : Types.IC = actor ("aaaaa-aa");
         let ONE_MINUTE : Nat64 = 60;
-        let start_timestamp : Types.Timestamp = initEndTimestamp - 60;
+
+        // Front-end forced me to multiply 10e9. Pardon me
         let end_timestamp : Types.Timestamp = initEndTimestamp;
+        let start_timestamp : Types.Timestamp = end_timestamp - 60;
+
         let host : Text = "api.exchange.coinbase.com";
         
         // Extract pair components
@@ -795,9 +806,7 @@ shared(msg) actor class BinaryOptionMarket(
             case (null) { "ICP-USD" }; // Default if empty
         };
         
-        let url = "https://" # host # "/products/" # tradingPair # "/candles?start=" 
-            # Nat64.toText(start_timestamp) # "&end=" 
-            # Nat64.toText(end_timestamp) # "&granularity=" 
+        let url = "https://" # host # "/products/" # tradingPair # "/candles?granularity="
             # Nat64.toText(ONE_MINUTE);
 
         Debug.print("Request URL: " # url);
@@ -811,7 +820,6 @@ shared(msg) actor class BinaryOptionMarket(
             url = url;
             max_response_bytes = null;
             headers = [
-                { name = "Host"; value = ":443" },
                 { name = "User-Agent"; value = "exchange_rate_canister" }
             ];
             body = null;
@@ -828,10 +836,29 @@ shared(msg) actor class BinaryOptionMarket(
             case (?y) { y };
         };
 
-        Debug.print("Decoded text: " # decoded_text);
-        let trimmed_text = Text.trim(decoded_text, #text("[]"));
-        let values = Iter.toArray(Text.split(trimmed_text, #text(",")));
-        values[4]
+        Debug.print("Decoded Text: " # decoded_text);
+
+        let inner = Text.trim(decoded_text, #text("[]"));
+
+        Debug.print("Inner Text: " # inner);
+
+        // 2. Split into rows, take the very first one
+        let rows    = Iter.toArray(Text.split(inner, #text("],[")));
+        let first   = rows[0];
+
+        Debug.print(debug_show(rows));
+
+        Debug.print("First row: " # first);
+
+        // 3. Trim stray brackets (just in case), split into fields
+        let fields  = Iter.toArray(
+        Text.split(Text.trim(first, #text("[]")), #text(",")));
+
+        Debug.print(debug_show(fields));
+        Debug.print("Final value: " # fields[4]);
+
+        // 4. Return the 5th value (index 4)
+        fields[4]
     };
 
     // ============ System Functions ============

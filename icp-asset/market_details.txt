@@ -1,0 +1,10 @@
+(
+  record {
+    resolved = false;
+    oracleDetails = record {
+      finalPrice = 0.0 : float64;
+      strikePrice = 6.0 : float64;
+    };
+    positions = record { long = 0 : nat; short = 0 : nat };
+  },
+)
