@@ -115,15 +115,15 @@ const ListMarkets: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 }) =>
             // The error happens because we're trying to use includes on undefined
             // We need to check if we're using react-router or next/router
             if (typeof window !== 'undefined') {
-                // Use a client-side redirect to the home page with the market ID
-                window.location.href = `/?marketId=${marketId}`;
+                // Use a client-side redirect to the customer page with the market ID
+                window.location.href = `/customer/${marketId}`;
                 // Alternatively, we could use router.push, but direct navigation works better for this case
-                // router.push(`/?marketId=${marketId}`);
+                // router.push(`/customer/${marketId}`);
             }
         } catch (error) {
             console.error("Navigation error:", error);
             // Fallback to direct navigation
-            window.location.href = `/?marketId=${marketId}`;
+            window.location.href = `/customer/${marketId}`;
         }
     };
 

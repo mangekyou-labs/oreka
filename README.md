@@ -273,3 +273,22 @@ NEXT_PUBLIC_DEPLOYMENT_API_URL=http://localhost:3001/api/deploy
 ---
 
 Built with ❤️ for the Internet Computer ecosystem.
+
+# Oreka Factory Canister
+
+## Cycles Requirements
+
+The Factory canister requires a sufficient amount of cycles to deploy and operate binary option markets:
+
+- **Factory Canister Operation**: The factory canister itself must maintain at least **2.2T cycles** to function properly
+- **Market Deployment Cost**: Each binary option market deployment requires **4T cycles** to ensure successful creation and initialization
+- **Total Cost (worst case)**: 4.4T cycles (2.2T for factory operation + 2.2T for market deployment)
+- **ICP Equivalent**: Approximately 1.32 ICP (at current conversion rate of 0.3 ICP = 1T cycles)
+
+### Important Notes:
+- Always ensure the factory canister has more than the required cycles before attempting to create a new market
+- If you encounter an "out of cycles" error, you need to top up the factory canister
+- The exact cycle consumption may vary slightly depending on market parameters and network conditions
+- For safety, consider allocating extra cycles beyond the minimum requirements
+
+## Functions

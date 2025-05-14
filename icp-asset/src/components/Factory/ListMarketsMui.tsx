@@ -21,6 +21,7 @@ import { styled } from '@mui/material/styles';
 import { FaSync, FaCoins, FaChartLine } from 'react-icons/fa';
 import { useRouter } from 'next/router';
 import { FactoryApiService } from '../../service/FactoryService';
+import { AuthClient } from '@dfinity/auth-client';
 
 // Material UI styled components
 const GradientPaper = styled(Paper)(({ theme }) => ({
@@ -74,6 +75,13 @@ interface Contract {
     type: any; // ContractType
     created: bigint;
     owner: any; // Principal
+    metadata?: {
+        strikePrice?: string;
+        maturityDate?: string;
+        symbol?: string;
+        decimals?: number;
+        totalSupply?: string;
+    };
 }
 
 // Transformed contracts for display
@@ -91,6 +99,7 @@ interface DisplayContract {
     symbol?: string;
     decimals?: number;
     totalSupply?: string;
+    tradingPair?: string;
 }
 
 // Props interface for ListMarkets component
@@ -110,25 +119,178 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
     const router = useRouter();
     const factoryService = new FactoryApiService();
 
+    // Add this to track when the page needs refreshing
+    const [lastRefreshed, setLastRefreshed] = useState<number>(Date.now());
+
     useEffect(() => {
-        console.log("ListMarkets component mounted");
+        console.log("ListMarkets component mounted or refreshed");
         fetchContracts();
-    }, []);
+
+        // Set up a refresh interval to check for new markets
+        const refreshInterval = setInterval(() => {
+            console.log("Auto-refreshing markets list");
+            fetchContracts();
+        }, 15000); // Refresh every 15 seconds
+
+        return () => {
+            clearInterval(refreshInterval);
+        };
+    }, [lastRefreshed]); // Depend on lastRefreshed to trigger refresh
+
+    // Function to manually refresh the list
+    const refreshMarketsList = () => {
+        console.log("Manual refresh requested");
+        setIsLoading(true);
+        setLastRefreshed(Date.now());
+    };
 
     const fetchContracts = async () => {
         console.log("Starting to fetch contracts...");
         setIsLoading(true);
         setError(null);
-        try {
-            console.log("Calling factoryService.getAllContracts()");
-            const result = await factoryService.getAllContracts();
-            console.log("Contracts API response:", result);
-            setRawData(JSON.stringify(result, null, 2));
 
-            if (result.ok) {
-                console.log("Successfully fetched contracts:", result.ok);
-                if (result.ok.length === 0) {
-                    console.log("No contracts found in the response");
+        // Add more detailed debugging
+        console.log("------------------- MARKET LIST REFRESH -------------------");
+        console.log(`Refresh started at ${new Date().toISOString()}`);
+
+        try {
+            // Force a fresh identity to avoid caching issues
+            const authClient = await AuthClient.create();
+            let identity;
+            try {
+                if (await authClient.isAuthenticated()) {
+                    identity = authClient.getIdentity();
+                    const principal = identity.getPrincipal().toString();
+                    console.log(`Using authenticated identity: ${principal}`);
+
+                    // Update the factory service with the identity
+                    factoryService.updateIdentity(identity);
+                } else {
+                    console.warn("No authenticated identity found, using anonymous");
+                }
+            } catch (e) {
+                console.warn("Error getting identity:", e);
+            }
+
+            // First approach: Try getAllMarketDetails
+            console.log("APPROACH 1: Calling factoryService.getAllMarketDetails()");
+            try {
+                const marketDetailsResult = await factoryService.getAllMarketDetails();
+                console.log("Market details API response:", marketDetailsResult);
+
+                if (marketDetailsResult.ok && marketDetailsResult.ok.length > 0) {
+                    console.log(`Found ${marketDetailsResult.ok.length} markets via getAllMarketDetails`);
+                    console.log("Market list:", marketDetailsResult.ok);
+
+                    // Transform the market details for display
+                    const allMarketDetails = marketDetailsResult.ok.map((market: any) => {
+                        console.log(`Processing market: ${market.name} (${market.canisterId.toString()})`);
+                        console.log(`Market data: Strike price=${market.strikePrice}, Trading pair=${market.tradingPair}`);
+
+                        let formattedStrikePrice = 'N/A';
+                        if (market.strikePrice !== null && market.strikePrice !== undefined) {
+                            if (typeof market.strikePrice === 'number') {
+                                formattedStrikePrice = `$${market.strikePrice.toFixed(2)}`;
+                            } else {
+                                formattedStrikePrice = `$${String(market.strikePrice)}`;
+                            }
+                        }
+
+                        // Base contract info
+                        const displayContract: DisplayContract = {
+                            name: market.name || 'Unnamed Market',
+                            contract_type: 'BinaryOptionMarket',
+                            canister_id: market.canisterId.toString(),
+                            status: 'active', // Default to active status
+                            strikePrice: formattedStrikePrice,
+                            tradingPair: market.tradingPair || 'Unknown'
+                        };
+
+                        return displayContract;
+                    });
+
+                    console.log("Processed market details:", allMarketDetails);
+                    setContracts(allMarketDetails);
+                    setMarkets(allMarketDetails);
+                    setIsLoading(false);
+                    console.log("Successfully updated market list with getAllMarketDetails data");
+                    return;
+                } else {
+                    console.warn("No market details found or API returned error");
+                }
+            } catch (detailsError) {
+                console.error("Error using getAllMarketDetails:", detailsError);
+            }
+
+            // Second approach: Try getAllMarkets for basic info
+            console.log("APPROACH 2: Trying factoryService.getAllMarkets()");
+            try {
+                const allMarketsResult = await factoryService.getAllMarkets();
+                console.log("getAllMarkets response:", allMarketsResult);
+
+                if (allMarketsResult.ok && allMarketsResult.ok.length > 0) {
+                    console.log(`Found ${allMarketsResult.ok.length} markets via getAllMarkets`);
+
+                    // Transform markets for display
+                    const allMarketDetails = allMarketsResult.ok.map((market: any) => {
+                        console.log(`Processing market from getAllMarkets: ${market.name || 'Unknown'}`);
+
+                        let strikePrice = 'N/A';
+                        let tradingPair = 'Unknown';
+
+                        // Handle optional values in Candid format
+                        if (market.strikePrice && Array.isArray(market.strikePrice) && market.strikePrice.length > 0) {
+                            const price = market.strikePrice[0];
+                            if (typeof price === 'number') {
+                                strikePrice = `$${price.toFixed(2)}`;
+                            }
+                        }
+
+                        if (market.tradingPair && Array.isArray(market.tradingPair) && market.tradingPair.length > 0) {
+                            tradingPair = market.tradingPair[0];
+                        }
+
+                        return {
+                            name: market.name || 'Unnamed Market',
+                            contract_type: 'BinaryOptionMarket',
+                            canister_id: market.canisterId.toString(),
+                            status: 'active',
+                            strikePrice: strikePrice,
+                            tradingPair: tradingPair
+                        };
+                    });
+
+                    console.log("Processed getAllMarkets data:", allMarketDetails);
+                    setContracts(allMarketDetails);
+                    setMarkets(allMarketDetails);
+                    setIsLoading(false);
+                    console.log("Successfully updated market list with getAllMarkets data");
+                    return;
+                } else {
+                    console.warn("No markets found with getAllMarkets or API returned error");
+                }
+            } catch (marketsError) {
+                console.error("Error using getAllMarkets:", marketsError);
+            }
+
+            // Third approach (fallback): Use the original getAllContracts method
+            console.log("APPROACH 3: Falling back to getAllContracts");
+            const result = await factoryService.getAllContracts();
+            console.log("getAllContracts API response:", result);
+
+            if (result.ok && result.ok.length > 0) {
+                console.log(`Found ${result.ok.length} contracts via getAllContracts`);
+
+                // Get strike prices to enrich the data
+                let strikePricesMap = new Map<string, number>();
+                try {
+                    const strikePricesResult = await factoryService.getMarketStrikePrices();
+                    if (strikePricesResult.ok) {
+                        strikePricesMap = strikePricesResult.ok;
+                        console.log("Strike prices map:", Object.fromEntries(strikePricesMap));
+                    }
+                } catch (error) {
+                    console.error("Error fetching strike prices:", error);
                 }
 
                 // Transform the contracts for display
@@ -154,17 +316,19 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                         canister_id: contract.address.toString(),
                         created: new Date(Number(contract.created) / 1000000).toLocaleString(),
                         owner: contract.owner.toString(),
-                        status: Math.random() > 0.5 ? 'active' : Math.random() > 0.5 ? 'pending' : 'completed'
+                        status: 'active'
                     };
 
-                    // Add type-specific mock data
+                    // Add strike price from the strike prices map
                     if (contractType === 'BinaryOptionMarket') {
-                        displayContract.strikePrice = `$${(Math.random() * 1000).toFixed(2)}`;
-                        displayContract.maturityDate = new Date(Date.now() + Math.random() * 30 * 24 * 60 * 60 * 1000).toLocaleDateString();
-                    } else if (contractType === 'ICRC1Token') {
-                        displayContract.symbol = contract.title.split(' ')[0].substring(0, 4).toUpperCase();
-                        displayContract.decimals = 8;
-                        displayContract.totalSupply = (Math.random() * 1000000).toFixed(0);
+                        const canisterId = contract.address.toString();
+                        const strikePrice = strikePricesMap.get(canisterId);
+                        if (strikePrice !== undefined) {
+                            displayContract.strikePrice = `$${strikePrice.toFixed(2)}`;
+                            console.log(`Set strike price for ${canisterId} to ${displayContract.strikePrice}`);
+                        } else {
+                            console.log(`No strike price found for ${canisterId}`);
+                        }
                     }
 
                     return displayContract;
@@ -176,19 +340,25 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                 const marketContracts = allContracts.filter(c => c.contract_type === 'BinaryOptionMarket');
                 const tokenContracts = allContracts.filter(c => c.contract_type === 'ICRC1Token');
 
+                console.log(`Found ${marketContracts.length} markets after filtering`);
+
                 setContracts(allContracts);
                 setMarkets(marketContracts);
                 setTokens(tokenContracts);
+                setIsLoading(false);
+                console.log("Successfully updated market list with getAllContracts data");
             } else {
-                console.error("Error from API:", result.err);
-                setError('Failed to fetch contracts: ' + (result.err || 'Unknown error'));
+                console.error("No contracts found in any approach");
+                setError(`No markets found. Please try again later.`);
+                setIsLoading(false);
             }
-        } catch (err) {
-            console.error("Exception occurred:", err);
-            setError('An unexpected error occurred');
-        } finally {
+        } catch (error) {
+            console.error("Fatal error in fetchContracts:", error);
+            setError(`Failed to fetch contracts: ${error instanceof Error ? error.message : String(error)}`);
             setIsLoading(false);
-            console.log("Finished fetching contracts");
+        } finally {
+            console.log(`Refresh completed at ${new Date().toISOString()}`);
+            console.log("------------------- END MARKET LIST REFRESH -------------------");
         }
     };
 
@@ -217,7 +387,7 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
         try {
             if (typeof window !== 'undefined') {
                 if (contractType === 'BinaryOptionMarket') {
-                    window.location.href = `/?marketId=${contractId}`;
+                    window.location.href = `/customer/${contractId}`;
                 } else if (contractType === 'ICRC1Token') {
                     window.location.href = `/?tokenId=${contractId}`;
                 } else {
@@ -257,10 +427,10 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                     </Typography>
                     <StyledButton
                         startIcon={<FaSync />}
-                        onClick={fetchContracts}
+                        onClick={refreshMarketsList}
                         disabled={isLoading}
                     >
-                        Refresh
+                        {isLoading ? 'Refreshing...' : 'Refresh'}
                     </StyledButton>
                 </Box>
 
@@ -296,23 +466,45 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                 ) : (
                     <Grid container spacing={3}>
                         {getActiveContracts().map((contract) => (
-                            <Grid item xs={12} md={6} lg={4} key={contract.canister_id}>
+                            <Grid item xs={12} sm={6} md={4} key={contract.canister_id}>
                                 <ContractCard>
                                     <CardContent>
-                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                                            <Typography variant="h6" color="white" noWrap sx={{ maxWidth: '70%' }}>
+                                        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                                            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
                                                 {contract.name}
                                             </Typography>
                                             <Chip
-                                                label={contract.status}
-                                                color={getBadgeColor(contract.status || '')}
+                                                label={contract.status || 'Active'}
                                                 size="small"
+                                                sx={{
+                                                    bgcolor: getBadgeColor(contract.status || 'active'),
+                                                    color: 'white',
+                                                    fontWeight: 'bold'
+                                                }}
                                             />
-                                        </Box>
+                                        </Stack>
 
-                                        <Divider sx={{ my: 1, bgcolor: 'rgba(255,255,255,0.1)' }} />
+                                        <Stack spacing={1}>
+                                            {contract.contract_type === 'BinaryOptionMarket' && (
+                                                <>
+                                                    {contract.tradingPair && (
+                                                        <Typography variant="body2">
+                                                            <strong>Trading Pair:</strong> {contract.tradingPair}
+                                                        </Typography>
+                                                    )}
+                                                    {contract.strikePrice && (
+                                                        <Typography variant="body2">
+                                                            <strong>Strike Price:</strong> {contract.strikePrice}
+                                                        </Typography>
+                                                    )}
+                                                    {contract.maturityDate && (
+                                                        <Typography variant="body2">
+                                                            <strong>Expiry:</strong> {formatDate(contract.maturityDate)}
+                                                        </Typography>
+                                                    )}
+                                                </>
+                                            )}
 
-                                        <Stack spacing={1} sx={{ mt: 2 }}>
                                             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                                                 <Typography variant="body2" color="text.secondary">Type</Typography>
                                                 <Typography variant="body2" color="white">
@@ -326,19 +518,6 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                                                 <Typography variant="body2" color="text.secondary">Created</Typography>
                                                 <Typography variant="body2" color="white">{contract.created}</Typography>
                                             </Box>
-
-                                            {contract.contract_type === 'BinaryOptionMarket' && (
-                                                <>
-                                                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                        <Typography variant="body2" color="text.secondary">Strike Price</Typography>
-                                                        <Typography variant="body2" color="white">{contract.strikePrice}</Typography>
-                                                    </Box>
-                                                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                        <Typography variant="body2" color="text.secondary">Maturity</Typography>
-                                                        <Typography variant="body2" color="white">{contract.maturityDate}</Typography>
-                                                    </Box>
-                                                </>
-                                            )}
 
                                             {contract.contract_type === 'ICRC1Token' && (
                                                 <>

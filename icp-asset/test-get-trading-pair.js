@@ -1,0 +1,1 @@
+const { Actor } = require("@dfinity/agent"); const fs = require("fs"); const idlFactory = { idlFactory: ({ IDL }) => { const BinaryOptionMarket = IDL.Service({ getTradingPair: IDL.Func([], [IDL.Text], ["query"]) }); return BinaryOptionMarket; } }; console.log("Script created, will query getTradingPair for a test market canister");

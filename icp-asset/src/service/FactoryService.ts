@@ -259,19 +259,28 @@ export class FactoryApiService {
     // Additional API methods
     async getAllContracts(): Promise<ApiResult<any[]>> {
         try {
-            console.log("Fetching all contracts");
+            console.log("Fetching all contracts from factory");
+
+            // Call the actor method to get all contracts from the factory
             const contracts = await this.factoryActor.getAllContracts();
-            console.log("Contracts found:", contracts.length);
-            return {
-                ok: contracts,
-                err: null
-            };
+
+            console.log("Raw contracts result:", contracts);
+
+            // If we received a valid response
+            if (contracts && Array.isArray(contracts)) {
+                return {
+                    ok: contracts.filter(contract =>
+                        contract && contract.type &&
+                        ('BinaryOptionMarket' in contract.type || 'ICRC1Token' in contract.type)
+                    ),
+                    err: null
+                };
+            } else {
+                return { ok: [], err: "No contracts returned from factory" };
+            }
         } catch (error) {
-            console.error("Error fetching contracts:", error);
-            return {
-                ok: null,
-                err: `Failed to fetch contracts: ${error instanceof Error ? error.message : String(error)}`
-            };
+            console.error("Error fetching all contracts:", error);
+            return { ok: null, err: error instanceof Error ? error.message : "Unknown error" };
         }
     }
 
@@ -915,7 +924,6 @@ export class FactoryApiService {
                 return await this.factoryActor.deployMarket(
                     name,            // (1) Text
                     priceAsFloat,    // (2) Float64 (number)
-                    underlyingPair,  // (3) Text
                     expiry,          // (4) Nat64 (bigint)
                     marketTypeStr    // (5) Text
                 );
@@ -932,107 +940,231 @@ export class FactoryApiService {
     }
 
     /**
-     * Deploy a market with simplified parameters - direct access to the new backend function
+     * Deploy a market with the final parameters needed by the backend
+     * This is the main method that should be used for market deployment
      */
     async deployMarketFinal(
         name: string,
         strike_price: number,
-        expiry: bigint
-    ): Promise<DeployResult> {
-        console.log("Deploying market with simplified parameters:", {
-            name,
-            strike_price,
-            expiry: expiry.toString()
-        });
-
-        // The simplified order based on the updated Motoko backend is:
-        // name: Text, strike_price: Float, expiry: Nat64
-        return await this.factoryActor.deployMarket(
-            name,          // (1) Text - market name
-            strike_price,  // (2) Float64 - strike price as a direct number
-            expiry         // (3) Nat64 (bigint) - expiry timestamp
-        );
-    }
-
-    /**
-     * Deploy a market with the exact same format as the dfx command-line call
-     * This is the most direct match to the backend canister method
-     */
-    async deployMarketDfx(
-        name: string,          // Market name (Text)
-        strikePrice: number,   // Strike price (Float64) 
-        expiry: bigint,        // Expiry timestamp (Nat64)
-        owner?: string         // Optional owner principal ID
+        expiry: bigint,
+        trading_pair: string = "BTC-USD" // Default trading pair if not specified
     ): Promise<DeployResult> {
         try {
-            console.log("Deploying market with dfx-compatible interface:", {
+            console.log(`[deployMarketFinal] Starting deployment with params:`, {
                 name,
-                strikePrice,
-                // Convert bigint to string to avoid serialization issues
+                strike_price,
                 expiry: expiry.toString(),
-                owner: owner || "default (caller)"
+                trading_pair
             });
 
-            // Add debugging to see if special characters are the issue
-            if (name.includes("&")) {
-                console.warn("WARNING: Name contains & character which might cause issues");
+            // Input validation
+            if (!name || name.trim() === '') {
+                console.error("[deployMarketFinal] Market name is empty");
+                return { err: "Market name cannot be empty" };
             }
 
-            // Sanitize the name to remove special characters
-            const sanitizedName = name.replace(/[&<>]/g, (c) => {
-                return {
-                    '&': '\\u0026',
-                    '<': '\\u003c',
-                    '>': '\\u003e'
-                }[c] || c;
+            if (isNaN(strike_price) || strike_price <= 0) {
+                console.error("[deployMarketFinal] Invalid strike price:", strike_price);
+                return { err: "Strike price must be positive" };
+            }
+
+            if (!trading_pair || trading_pair.trim() === '') {
+                console.error("[deployMarketFinal] Trading pair is empty");
+                return { err: "Trading pair cannot be empty" };
+            }
+
+            // Ensure the strike price is a proper float64
+            const safeStrikePrice = this.ensureFloat64(strike_price);
+            console.log(`[deployMarketFinal] Safe strike price: ${safeStrikePrice} (type: ${typeof safeStrikePrice})`);
+
+            // Direct call to the backend deployMarket function
+            console.log(`[deployMarketFinal] Calling factory.deployMarket with:`, {
+                name,
+                strike_price: safeStrikePrice,
+                expiry: expiry.toString(),
+                trading_pair
             });
 
             try {
-                // Convert parameters to JavaScript primitives that Candid can handle
-                const safeExpiry = expiry; // Keep as bigint, but handle carefully
-
-                // For debugging
-                console.log("Safe parameters prepared:");
-                console.log("- name:", typeof sanitizedName, sanitizedName);
-                console.log("- strikePrice:", typeof strikePrice, strikePrice);
-                console.log("- expiry:", typeof safeExpiry, safeExpiry.toString());
-
-                // Make the call with parameters
-                // The factory canister only has the standard deployMarket method
-                // It uses msg.caller as the owner by default, there is no separate method
-                // to specify a custom owner
+                // Using null-checking pattern to handle potential undefined result
                 const result = await this.factoryActor.deployMarket(
-                    sanitizedName,
-                    strikePrice,
-                    safeExpiry
+                    name,
+                    safeStrikePrice,
+                    expiry,
+                    trading_pair
                 );
 
-                console.log("DFX-style deployment result:", result);
-                return result;
-            } catch (error) {
-                console.error("Error in DFX-style market deployment:", error);
+                console.log("[deployMarketFinal] Backend response:", result);
 
-                // More detailed error handling
-                if (error instanceof Error) {
-                    // Check for specific error patterns
-                    const errorMsg = error.message;
-
-                    if (errorMsg.includes("&")) {
-                        console.error("Found '&' character in error message - likely a serialization issue");
-                        return { err: "Invalid character in input. Please avoid special characters." };
-                    }
-
-                    return { err: errorMsg };
+                if (result === undefined || result === null) {
+                    console.error("[deployMarketFinal] Backend returned null/undefined result");
+                    return { err: "Backend returned an empty response" };
                 }
 
-                return {
-                    err: `Error deploying market with dfx interface: ${String(error)}`
-                };
+                if ('ok' in result) {
+                    console.log(`[deployMarketFinal] Market deployed successfully:`, result.ok.toString());
+                    return { ok: result.ok };
+                } else if ('err' in result) {
+                    console.error(`[deployMarketFinal] Error from backend:`, result.err);
+                    return { err: result.err };
+                } else {
+                    console.error(`[deployMarketFinal] Unexpected result format:`, result);
+                    return { err: "Unexpected response format from backend" };
+                }
+            } catch (callError) {
+                console.error("[deployMarketFinal] Error during actor call:", callError);
+
+                if (callError instanceof Error) {
+                    // Provide more detailed error info based on error type
+                    if (callError.message.includes("RejectedByCanister")) {
+                        return { err: "Canister rejected the call: " + callError.message };
+                    } else if (callError.message.includes("type")) {
+                        return { err: "Type error: " + callError.message };
+                    }
+                    return { err: "Actor call error: " + callError.message };
+                }
+
+                return { err: "Unknown error during actor call" };
             }
         } catch (error) {
-            console.error("Top-level error in DFX-style deployment:", error);
+            console.error("[deployMarketFinal] Unexpected error:", error);
             return {
-                err: `Exception in DFX-style deployment: ${error instanceof Error ? error.message : String(error)}`
+                err: error instanceof Error
+                    ? `Unexpected error: ${error.message}`
+                    : "Unknown error occurred during market deployment"
+            };
+        }
+    }
+
+    /**
+     * Get all market details including trading pairs and strike prices
+     */
+    async getAllMarketDetails(): Promise<ApiResult<any[]>> {
+        try {
+            console.log("Fetching all market details...");
+            // Call the canister directly bypassing any caching
+            const result = await this.factoryActor.getAllMarketDetails();
+            console.log("Raw market details result:", result);
+
+            if (!result || !Array.isArray(result) || result.length === 0) {
+                console.warn("No markets returned from backend or invalid format");
+                return { ok: [], err: null };
+            }
+
+            // Process the returned data to ensure proper formatting
+            const processedResult = result.map((market: any) => {
+                console.log("Processing raw market:", JSON.stringify(market, null, 2));
+
+                // Handle optional values in Candid format
+                // In Candid, optionals are represented as arrays: empty array for null, array with one element for value
+                const getOptionalValue = (opt: any) => {
+                    if (!opt || !Array.isArray(opt) || opt.length === 0) {
+                        return null;
+                    }
+                    return opt[0];
+                };
+
+                // Extract and process values
+                const strikePrice = getOptionalValue(market.strikePrice);
+                const tradingPair = getOptionalValue(market.tradingPair);
+                const expiry = getOptionalValue(market.expiry);
+
+                // Log the extracted values
+                console.log(`Market ${market.canisterId.toString()}: Strike price = ${strikePrice}, Trading pair = ${tradingPair}, Expiry = ${expiry}`);
+
+                // Return processed market record
+                return {
+                    canisterId: market.canisterId,
+                    name: market.name,
+                    strikePrice: strikePrice,
+                    tradingPair: tradingPair,
+                    expiry: expiry
+                };
+            });
+
+            console.log("Processed market details:", processedResult);
+
+            // Return the processed results
+            return { ok: processedResult, err: null };
+        } catch (error) {
+            console.error("Error fetching market details:", error);
+            console.error("Error details:", JSON.stringify(error, null, 2));
+            return {
+                ok: null,
+                err: error instanceof Error ? error.message : "Unknown error fetching market details"
+            };
+        }
+    }
+
+    /**
+     * Get all market strike prices - efficient batch query
+     */
+    async getMarketStrikePrices(): Promise<ApiResult<Map<string, number>>> {
+        try {
+            console.log("Fetching all market strike prices...");
+            const result = await this.factoryActor.getMarketStrikePrices();
+            console.log("Raw market strike prices result:", JSON.stringify(result, null, 2));
+
+            if (!result || !Array.isArray(result)) {
+                console.warn("Invalid or empty result from getMarketStrikePrices");
+                return { ok: new Map(), err: null };
+            }
+
+            // Convert the array of pairs to a Map
+            const strikePricesMap = new Map<string, number>();
+
+            result.forEach((pair: any) => {
+                if (!pair || typeof pair !== 'object') {
+                    console.warn("Invalid pair in result:", pair);
+                    return;
+                }
+
+                // Extract canisterId and optional strikePrice
+                const canisterId = pair[0];
+                const strikePrice = pair[1];
+
+                // Debug the values
+                console.log(`Processing pair: canisterId = ${canisterId.toString()}, strikePrice =`, strikePrice);
+
+                // Handle optional values in Candid format
+                if (strikePrice && Array.isArray(strikePrice) && strikePrice.length > 0) {
+                    const price = strikePrice[0];
+                    console.log(`Found price ${price} for canister ${canisterId.toString()}`);
+                    if (typeof price === 'number' && !isNaN(price)) {
+                        strikePricesMap.set(canisterId.toString(), price);
+                    }
+                } else {
+                    console.log(`No price found for canister ${canisterId.toString()}`);
+                }
+            });
+
+            console.log("Final strike prices map:", Object.fromEntries(strikePricesMap));
+            return { ok: strikePricesMap, err: null };
+        } catch (error) {
+            console.error("Error fetching market strike prices:", error);
+            console.error("Error details:", JSON.stringify(error, null, 2));
+            return {
+                ok: null,
+                err: error instanceof Error ? error.message : "Unknown error fetching market strike prices"
+            };
+        }
+    }
+
+    /**
+     * Get details for a specific market by ID
+     */
+    async getMarketDetails(canisterId: string): Promise<ApiResult<any>> {
+        try {
+            console.log(`Fetching details for market ${canisterId}...`);
+            const principal = Principal.fromText(canisterId);
+            const result = await this.factoryActor.getMarketDetails(principal);
+            console.log("Market details result:", result);
+            return { ok: result, err: null };
+        } catch (error) {
+            console.error(`Error fetching market details for ${canisterId}:`, error);
+            return {
+                ok: null,
+                err: error instanceof Error ? error.message : `Unknown error fetching market details for ${canisterId}`
             };
         }
     }
@@ -1137,6 +1269,24 @@ export class FactoryApiService {
             return {
                 ok: false,
                 err: `Failed to start trading: ${error instanceof Error ? error.message : String(error)}`
+            };
+        }
+    }
+
+    /**
+     * Get all markets registered in the factory
+     */
+    async getAllMarkets(): Promise<ApiResult<any[]>> {
+        try {
+            console.log("Fetching all markets...");
+            const result = await this.factoryActor.getAllMarkets();
+            console.log("Raw getAllMarkets result:", result);
+            return { ok: result, err: null };
+        } catch (error) {
+            console.error("Error fetching all markets:", error);
+            return {
+                ok: null,
+                err: error instanceof Error ? error.message : "Unknown error fetching markets"
             };
         }
     }

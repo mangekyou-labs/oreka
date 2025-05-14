@@ -81,7 +81,6 @@ const FactoryPage: React.FC<FactoryPageProps> = () => {
                     <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
                         <TabList onChange={(event: React.SyntheticEvent, newValue: string) => setCurrentTab(newValue)}>
                             <Tab label="Deploy Market" value="0" />
-                            <Tab label="Deploy Contract" value="1" />
                             <Tab label="List Markets" value="2" />
                             <Tab label="Factory Contracts" value="3" />
                         </TabList>

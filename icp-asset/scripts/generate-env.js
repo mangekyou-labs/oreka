@@ -28,24 +28,35 @@ if (!factoryId || !ledgerId) {
     process.exit(1);
 }
 
-// Generate environment content
-const envContent = `NEXT_PUBLIC_FACTORY_CANISTER_ID=${factoryId}
+// Generate development environment content
+const devEnvContent = `NEXT_PUBLIC_FACTORY_CANISTER_ID=${factoryId}
 NEXT_PUBLIC_ICP_LEDGER_CANISTER_ID=${ledgerId}
 NEXT_PUBLIC_IC_HOST=http://localhost:4943
 DFX_NETWORK=local
 `;
 
+// Generate production environment content
+const prodEnvContent = `NEXT_PUBLIC_FACTORY_CANISTER_ID=t2xwy-pyaaa-aaaar-qblaq-cai
+NEXT_PUBLIC_ICP_LEDGER_CANISTER_ID=ryjl3-tyaaa-aaaaa-aaaba-cai
+NEXT_PUBLIC_IC_HOST=https://ic0.app
+DFX_NETWORK=ic
+`;
+
 // Define file paths
 const envLocalPath = path.join(__dirname, '..', '.env.local');
 const envDevPath = path.join(__dirname, '..', '.env.development');
+const envProdPath = path.join(__dirname, '..', '.env.production');
 
 // Write to files
 try {
-    fs.writeFileSync(envLocalPath, envContent);
+    fs.writeFileSync(envLocalPath, devEnvContent);
     console.log(`Created ${envLocalPath}`);
 
-    fs.writeFileSync(envDevPath, envContent);
+    fs.writeFileSync(envDevPath, devEnvContent);
     console.log(`Created ${envDevPath}`);
+
+    fs.writeFileSync(envProdPath, prodEnvContent);
+    console.log(`Created ${envProdPath}`);
 
     console.log('Environment files generated successfully!');
 } catch (error) {

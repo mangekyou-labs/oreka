@@ -574,6 +574,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
         setFinalPrice(finalPriceFormatted);
       }
 
+
       const updatedContractData = {
         address: contractAddress,
         timestamp: Date.now(),
@@ -2611,6 +2612,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                   {hasExpiredWhileInTrading ? "Expired" : currentPhase === Phase.Trading ? "Live" : ""}
                 </Text>
               </Text>
+            )}
 
             )}
 
