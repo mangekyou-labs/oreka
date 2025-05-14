@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@chainlink/contracts": "^0.4.0",
     "@openzeppelin/contracts": "^5.2.0",
     "@orally-network/solidity-sdk": "^0.3.0",
     "all": "^0.0.0",

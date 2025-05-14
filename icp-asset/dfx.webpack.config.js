@@ -25,6 +25,7 @@ function initCanisterIds() {
 
   console.info(`initCanisterIds: canisters=${JSON.stringify(canisters)}`);
 
+  // Set canister IDs for all canisters including ICP ledger
   for (const canister in canisters) {
     process.env[`NEXT_PUBLIC_${canister.toUpperCase()}_CANISTER_ID`] =
       canisters[canister][network]

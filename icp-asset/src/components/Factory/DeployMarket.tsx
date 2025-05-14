@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
     Box, Button, Typography, TextField, CircularProgress, Alert,
     Paper, Grid, Divider, Select, MenuItem, InputAdornment,
-    Slider, Tooltip, ListItem, ListItemText, List
+    Slider, Tooltip, ListItem, ListItemText, List, Input
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { FaSync, FaArrowUp, FaArrowDown, FaClock } from 'react-icons/fa';
@@ -90,6 +90,12 @@ interface DeployMarketProps {
     onSuccess?: (marketId: string) => void;
 }
 
+interface FormState {
+    name: string;
+    strike_price: string;
+    hours: string;
+}
+
 const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess }) => {
     // Form state
     const [marketName, setMarketName] = useState('');
@@ -116,6 +122,13 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
         { value: "ICP", label: "Internet Computer (ICP)", currentPrice: 12.87 },
         { value: "SOL", label: "Solana (SOL)", currentPrice: 105.32 }
     ]);
+
+    // State for simplified form
+    const [formState, setFormState] = useState<FormState>({
+        name: '',
+        strike_price: '0.00',
+        hours: "72"
+    });
 
     // Set default date and time (tomorrow)
     useEffect(() => {
@@ -225,75 +238,80 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
         }
     };
 
+    const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const { name, value } = e.target;
+        setFormState(prev => ({
+            ...prev,
+            [name]: value
+        }));
+    };
+
     const handleDeployMarket = async () => {
+        // Reset deployment state
+        setDeploymentStage(0);
+        setErrorMsg("");
+        setSuccessMsg("");
+        setIsLoading(true);
+
         try {
-            // Basic validation
-            if (!selectedCoin) {
-                setErrorMsg("Please select a trading pair");
-                setDeploymentStage(0);
-                setIsLoading(false);
-                return;
-            }
-
-            setDeploymentStage(1);
-            setErrorMsg("");
-            setSuccessMsg("");
-
-            // Convert strike price to a proper float (not an integer)
-            const strikePriceFloat = parseFloat(strikePrice);
-
-            // Validate the strike price
-            if (isNaN(strikePriceFloat) || strikePriceFloat <= 0) {
-                setErrorMsg("Strike price must be a positive number");
-                setDeploymentStage(0);
-                setIsLoading(false);
-                return;
-            }
-
-            // Prepare market name and validate
-            const marketNameTrimmed = marketName.trim();
-            if (marketNameTrimmed.length === 0) {
+            // Validate inputs
+            if (!marketName) {
                 setErrorMsg("Market name cannot be empty");
                 setDeploymentStage(0);
                 setIsLoading(false);
                 return;
             }
 
-            // Check for special characters that might cause issues
-            if (/[&<>"]/.test(marketNameTrimmed)) {
-                console.warn("Market name contains special characters that might cause issues");
-                setErrorMsg("Please avoid using special characters like &, <, >, \" in the market name");
+            if (!strikePrice || parseFloat(strikePrice) <= 0) {
+                setErrorMsg("Strike price must be greater than 0");
                 setDeploymentStage(0);
                 setIsLoading(false);
                 return;
             }
 
-            // Validate userPrincipal - make sure we have the owner's principal ID
-            if (!userPrincipal) {
-                console.warn("Missing user principal ID - will use default owner");
-            } else {
-                console.log("Using user principal as owner:", userPrincipal);
+            if (!selectedCoin) {
+                setErrorMsg("You must select a trading pair");
+                setDeploymentStage(0);
+                setIsLoading(false);
+                return;
+            }
+
+            if (!maturityDate || !maturityTime) {
+                setErrorMsg("You must set a maturity date and time");
+                setDeploymentStage(0);
+                setIsLoading(false);
+                return;
             }
 
             // Get trading pair from selected coin
-            const tradingPair = selectedCoin.value;
+            const tradingPair = `${selectedCoin.value}-USD`;
 
-            // Calculate expiry timestamp (convert from local date/time to UTC timestamp in seconds)
-            const targetDate = new Date(`${maturityDate}T${maturityTime}`);
-            const targetDateMs = targetDate.getTime();
+            console.log("Market creation parameters:", {
+                name: marketName,
+                strike_price: parseFloat(strikePrice),
+                maturityDate,
+                maturityTime,
+                trading_pair: tradingPair,
+                selectedCoin
+            });
 
-            // Validate expiry time is in the future
-            if (targetDateMs <= Date.now()) {
-                setErrorMsg("Expiry time must be in the future");
-                setDeploymentStage(0);
-                setIsLoading(false);
-                return;
-            }
+            // Calculate timestamp for expiry using built-in Date
+            const datePart = new Date(maturityDate);
+            const timeParts = maturityTime.split(':');
+            datePart.setHours(parseInt(timeParts[0], 10));
+            datePart.setMinutes(parseInt(timeParts[1], 10));
+            datePart.setSeconds(0);
+            datePart.setMilliseconds(0);
 
-            const expiryTimestamp = BigInt(Math.floor(targetDateMs / 1000));
+            console.log("Maturity date (User's timezone):", datePart.toString());
 
-            // Make sure expiry is properly converted to bigint
-            const expiryAsBigInt = BigInt(expiryTimestamp);
+            // Convert milliseconds to seconds for the canister
+            // The factory expects timestamps in seconds (not milliseconds or nanoseconds)
+            const expiryInSeconds = BigInt(Math.floor(datePart.valueOf() / 1000));
+            console.log("Expiry timestamp in seconds:", expiryInSeconds.toString());
+
+            // Set deployment stage to initializing
+            setDeploymentStage(1);
 
             // Get authenticated identity
             const authClient = await AuthClient.create();
@@ -308,124 +326,59 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
             const principal = identity.getPrincipal().toString();
             console.log("Authenticated identity principal:", principal);
 
+            // Set deployment stage to creating market
+            setDeploymentStage(2);
+
             // Instantiate the factory service WITH the authenticated identity
             const factoryService = new FactoryApiService(identity);
 
-            // Log the parameters we're going to use
-            console.log("Deploying market with dfx-compatible interface:", {
-                name: marketNameTrimmed,        // (1) Text
-                strikePrice: strikePriceFloat,  // (2) Float64 (number)
-                expiry: expiryAsBigInt.toString(), // (3) Nat64 (bigint)
-                owner: userPrincipal || "default" // (4) Owner principal
+            // Call the deployMarketFinal method with the trading pair
+            console.log("Calling deployMarketFinal with:", {
+                marketName,
+                strikePrice: parseFloat(strikePrice),
+                expiryInSeconds: expiryInSeconds.toString(),
+                tradingPair
             });
 
-            let result;
-            try {
-                // Call with the exact same format as the successful dfx CLI command
-                console.log("About to call deployMarketDfx with these exact parameters:");
-                console.log("- Market Name:", JSON.stringify(marketNameTrimmed));
-                console.log("- Strike Price:", JSON.stringify(strikePriceFloat));
-                console.log("- Expiry:", JSON.stringify(expiryAsBigInt.toString()));
-                console.log("- Owner:", userPrincipal || "default");
-                console.log("- Authenticated as:", principal);
+            const result = await factoryService.deployMarketFinal(
+                marketName,
+                parseFloat(strikePrice),
+                expiryInSeconds,
+                tradingPair
+            );
 
-                // Test serialization first
-                const serializationResult = factoryService.debugSerialize([
-                    marketNameTrimmed,
-                    strikePriceFloat,
-                    expiryAsBigInt.toString(),
-                    userPrincipal || "default"
-                ]);
-                console.log("Serialization test result:", serializationResult);
-
-                // The factory canister's deployMarket function should use the caller as owner by default,
-                // but also allow an explicit owner parameter which we're passing now
-                result = await factoryService.deployMarketDfx(
-                    marketNameTrimmed,      // (1) name: Text 
-                    strikePriceFloat,       // (2) strikePrice: Float64 (number)
-                    expiryAsBigInt          // (3) expiry: Nat64 (bigint)
-                    // userPrincipal is not used directly in the backend call, as the
-                    // Factory canister will use the caller as the owner
-                );
-
-                console.log("Market deployment result:", result);
-            } catch (error) {
-                console.error("Error during deployment call:", error);
-                // Add more detailed error information
-                if (error instanceof Error) {
-                    console.error("Error name:", error.name);
-                    console.error("Error message:", error.message);
-                    console.error("Error stack:", error.stack);
-
-                    if (error.message.includes("&")) {
-                        setErrorMsg("Error: Special character '&' found. Please avoid using special characters in the market name.");
-                    } else {
-                        setErrorMsg(`Error during deployment: ${error.message}`);
-                    }
-                } else {
-                    setErrorMsg(`Error during deployment: ${String(error)}`);
-                }
-                setDeploymentStage(0);
-                setIsLoading(false);
-                return;
-            }
+            console.log("Deployment result:", result);
 
             if ('ok' in result && result.ok) {
-                setDeploymentStage(3); // Finished
-                try {
-                    // Try to get the canister ID as a string
-                    const canisterId = result.ok.toString();
-                    console.log("Canister ID as string:", canisterId);
+                const canisterId = result.ok.toString();
+                console.log(`Market deployed successfully with ID: ${canisterId}`);
 
-                    if (canisterId && canisterId !== "null") {
-                        setSuccessMsg(
-                            `Market canister created successfully with ID: ${canisterId}\n\n` +
-                            `Market is now ready for trading!`
-                        );
+                setSuccessMsg(
+                    `Market deployed with ID: ${canisterId}\n\n` +
+                    `Market is now ready for trading!`
+                );
+                setDeploymentStage(3);
 
-                        if (onSuccess) {
-                            onSuccess(canisterId);
-                        }
-
-                        // Reset form after a delay
-                        setTimeout(() => {
-                            // Reset form
-                            setSelectedCoin(null);
-                            setStrikePrice('');
-                            setMarketName('');
-                            setDeploymentStage(0); // Reset stage
-                        }, 5000);
-                    } else {
-                        setErrorMsg(`Failed to deploy market: Invalid canister ID (${canisterId})`);
-                        setDeploymentStage(0); // Reset on error
-                    }
-                } catch (err) {
-                    console.error("Error processing canister ID:", err);
-                    setErrorMsg(`Failed to process canister ID: ${err instanceof Error ? err.message : String(err)}`);
-                    setDeploymentStage(0); // Reset on error
-                }
-            } else {
-                const errorMessage = 'err' in result ? result.err : "Result is missing canister ID";
-
-                if (typeof errorMessage === 'string') {
-                    if (errorMessage.includes("type") || errorMessage.includes("argument")) {
-                        console.error("Detailed parameter error:", errorMessage);
-                        setErrorMsg(`Type error in market parameters: ${errorMessage}. The order of parameters may be incorrect or the value types don't match what's expected.`);
-                    } else if (errorMessage.includes("cycles")) {
-                        setErrorMsg(`Deployment failed due to insufficient cycles: ${errorMessage}`);
-                    } else if (errorMessage.includes("expiry") || errorMessage.includes("future")) {
-                        setErrorMsg(`Invalid expiry time: ${errorMessage}. Please select a valid date and time in the future.`);
-                    } else {
-                        setErrorMsg(`Failed to deploy market: ${errorMessage}`);
-                    }
-                } else {
-                    setErrorMsg(`Failed to deploy market: Unknown error occurred`);
+                // Call the onSuccess callback with the new canister ID
+                if (onSuccess) {
+                    onSuccess(canisterId);
                 }
 
+                // Reset form after successful deployment
+                setTimeout(() => {
+                    setDeploymentStage(0); // Reset stage
+                }, 5000);
+            } else if ('err' in result) {
+                console.error("Error deploying market:", result.err);
+                setErrorMsg(`Error: ${result.err}`);
                 setDeploymentStage(0); // Reset on error
+            } else {
+                console.error("Unknown deployment result:", result);
+                setErrorMsg("Unknown deployment result - check console for details");
+                setDeploymentStage(0);
             }
         } catch (error) {
-            console.error('Unexpected deploy error:', error);
+            console.error("Exception during deployment:", error);
             setErrorMsg(`An unexpected error occurred: ${error instanceof Error ? error.message : String(error)}`);
             setDeploymentStage(0); // Reset on error
         } finally {
@@ -523,30 +476,33 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                     </Box>
 
                     <Grid container spacing={2} sx={{ mb: 3 }}>
-                        <Grid item xs={6}>
-                            <Typography color="white" fontWeight="bold" mb={1}>MATURITY DATE:</Typography>
-                            <StyledTextField
-                                fullWidth
+                        <Grid item xs={12} md={6}>
+                            <Typography color="white" fontWeight="bold" mb={1}>DATE:</Typography>
+                            <Input
                                 type="date"
                                 value={maturityDate}
                                 onChange={(e) => setMaturityDate(e.target.value)}
-                                variant="outlined"
+                                sx={{
+                                    color: 'white',
+                                    bgcolor: 'rgba(255, 255, 255, 0.05)',
+                                    borderRadius: '8px',
+                                    p: 1,
+                                    width: '100%'
+                                }}
                             />
                         </Grid>
-                        <Grid item xs={6}>
-                            <Typography color="white" fontWeight="bold" mb={1}>TIME (EST):</Typography>
-                            <StyledTextField
-                                fullWidth
+                        <Grid item xs={12} md={6}>
+                            <Typography color="white" fontWeight="bold" mb={1}>TIME:</Typography>
+                            <Input
                                 type="time"
                                 value={maturityTime}
                                 onChange={(e) => setMaturityTime(e.target.value)}
-                                variant="outlined"
-                                InputProps={{
-                                    endAdornment: (
-                                        <InputAdornment position="end">
-                                            <FaClock />
-                                        </InputAdornment>
-                                    ),
+                                sx={{
+                                    color: 'white',
+                                    bgcolor: 'rgba(255, 255, 255, 0.05)',
+                                    borderRadius: '8px',
+                                    p: 1,
+                                    width: '100%'
                                 }}
                             />
                         </Grid>
@@ -660,7 +616,7 @@ const DeployMarket: React.FC<DeployMarketProps> = ({ userPrincipal, onSuccess })
                             <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <Typography color="text.secondary">Maturity date</Typography>
                                 <Typography color="white">
-                                    {maturityDate || 'Not set'} {maturityTime ? `${maturityTime} (EST)` : ''}
+                                    {maturityDate || 'Not set'} {maturityTime || ''}
                                 </Typography>
                             </Box>
 

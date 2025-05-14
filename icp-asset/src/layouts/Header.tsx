@@ -22,8 +22,9 @@ import {
   Button,
   useBreakpointValue,
   Link as ChakraLink,
+  useToast,
 } from '@chakra-ui/react';
-import { HamburgerIcon, ChevronDownIcon } from '@chakra-ui/icons';
+import { HamburgerIcon, ChevronDownIcon, CopyIcon } from '@chakra-ui/icons';
 import { useRouter } from 'next/router';
 import { AuthClient } from '@dfinity/auth-client';
 
@@ -33,6 +34,7 @@ export default function Header() {
   const [userPrincipal, setUserPrincipal] = useState<string | null>(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
   const isMobile = useBreakpointValue({ base: true, md: false });
+  const toast = useToast();
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -45,6 +47,9 @@ export default function Header() {
           const identity = authClient.getIdentity();
           const principal = identity.getPrincipal().toString();
           setUserPrincipal(principal);
+
+          // Log the principal ID in production
+          console.log('User principal ID:', principal);
         }
       } catch (error) {
         console.error('Error checking authentication status:', error);
@@ -58,6 +63,7 @@ export default function Header() {
     try {
       const authClient = await AuthClient.create();
 
+      // local: http://localhost:4943?canisterId=rdmx6-jaaaa-aaaaa-aaadq-cai
       authClient.login({
         identityProvider: process.env.NEXT_PUBLIC_II_URL ||
           (process.env.NODE_ENV !== "production"
@@ -68,6 +74,9 @@ export default function Header() {
           const identity = authClient.getIdentity();
           const principal = identity.getPrincipal().toString();
           setUserPrincipal(principal);
+
+          // Log the principal ID in production after login
+          console.log('User principal ID after login:', principal);
         },
       });
     } catch (error) {
@@ -83,6 +92,31 @@ export default function Header() {
       setUserPrincipal(null);
     } catch (error) {
       console.error('Logout error:', error);
+    }
+  };
+
+  const copyPrincipalToClipboard = () => {
+    if (userPrincipal) {
+      navigator.clipboard.writeText(userPrincipal)
+        .then(() => {
+          toast({
+            title: "Principal copied",
+            status: "success",
+            duration: 2000,
+            isClosable: true,
+            position: "top"
+          });
+        })
+        .catch(err => {
+          console.error('Failed to copy principal:', err);
+          toast({
+            title: "Failed to copy",
+            status: "error",
+            duration: 2000,
+            isClosable: true,
+            position: "top"
+          });
+        });
     }
   };
 
@@ -148,6 +182,7 @@ export default function Header() {
                   bgColor={isActive(item.path) ? "rgba(74, 99, 200, 0.2)" : "transparent"}
                   borderRadius="md"
                   px={4}
+                  fontSize="md"
                   _hover={{ bgColor: "rgba(255, 255, 255, 0.05)", color: "white" }}
                   onClick={() => {
                     navigateTo(item.path);
@@ -169,11 +204,36 @@ export default function Header() {
                     <Text color="whiteAlpha.700" fontSize="sm" mb={1}>
                       Logged in as:
                     </Text>
-                    <Text color="white" fontSize="sm" fontFamily="monospace" isTruncated>
-                      {userPrincipal
-                        ? `${userPrincipal.substring(0, 8)}...${userPrincipal.substring(userPrincipal.length - 8)}`
-                        : "Not signed in"}
-                    </Text>
+                    <Flex align="center">
+                      <Box
+                        cursor="pointer"
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevent the dropdown from opening
+                          copyPrincipalToClipboard();
+                        }}
+                        title="Click to copy principal ID"
+                      >
+                        <Text color="white" fontSize="sm" fontFamily="monospace" isTruncated flex="1">
+                          {userPrincipal
+                            ? `${userPrincipal.substring(0, 8)}...${userPrincipal.substring(userPrincipal.length - 8)}`
+                            : "Not signed in"}
+                        </Text>
+                      </Box>
+                      {userPrincipal && (
+                        <IconButton
+                          aria-label="Copy principal ID"
+                          icon={<CopyIcon />}
+                          size="xs"
+                          variant="ghost"
+                          colorScheme="blue"
+                          onClick={(e) => {
+                            e.stopPropagation(); // Prevent the dropdown from opening
+                            copyPrincipalToClipboard();
+                          }}
+                          ml={2}
+                        />
+                      )}
+                    </Flex>
                     <Button
                       colorScheme="blue"
                       variant="outline"
@@ -186,12 +246,12 @@ export default function Header() {
                   </VStack>
                 ) : (
                   <Button
-                    colorScheme="blue"
+                    bg="#4a63c8"
+                    color="white"
                     size="md"
                     w="full"
                     onClick={handleLogin}
-                    bg="rgba(74, 99, 200, 0.8)"
-                    _hover={{ bg: "rgba(106, 131, 232, 0.8)" }}
+                    _hover={{ bg: "#5a73d8" }}
                   >
                     Log In with Internet Identity
                   </Button>
@@ -205,118 +265,159 @@ export default function Header() {
   );
 
   return (
-    <Box
-      bg="#0a1647"
-      boxShadow="0 4px 20px rgba(0, 0, 0, 0.3)"
-      zIndex={10}
-      position="sticky"
-      top={0}
-      borderBottom="1px solid rgba(255, 255, 255, 0.05)"
-      width="100%"
-    >
-      <Container maxW="container.lg" py={4} mx="auto">
-        <Flex h={16} alignItems="center" justifyContent="space-between" width="100%">
-          {/* Logo */}
-          <Box cursor="pointer" onClick={() => navigateTo('/')} width="180px">
-            <Text
-              fontSize="2xl"
-              fontWeight="bold"
-              color="white"
-              bgGradient="linear(to-r, #4a63c8, #5a73d8, #6a83e8)"
-              bgClip="text"
-              letterSpacing="wider"
-              textAlign="center"
-            >
-              OREKA
-            </Text>
-          </Box>
-
-          {/* Desktop Navigation */}
-          <HStack spacing={8} display={{ base: 'none', md: 'flex' }} justifyContent="center" flex="1">
-            {navItems.map((item) => (
-              <Box
-                key={item.name}
-                position="relative"
-                cursor="pointer"
-                color={isActive(item.path) ? "white" : "whiteAlpha.700"}
-                fontWeight={isActive(item.path) ? "semibold" : "normal"}
-                _hover={{ color: "white" }}
-                onClick={() => navigateTo(item.path)}
-                transition="all 0.2s"
+    <Box>
+      <Box
+        bg="#0a1647"
+        boxShadow="0 4px 20px rgba(0, 0, 0, 0.3)"
+        zIndex={10}
+        position="sticky"
+        top={0}
+        borderBottom="1px solid rgba(255, 255, 255, 0.05)"
+        width="100%"
+      >
+        <Container maxW="container.lg" py={4} mx="auto">
+          <Flex h={16} alignItems="center" justifyContent="space-between" width="100%">
+            {/* Logo */}
+            <Box cursor="pointer" onClick={() => navigateTo('/')} width="180px">
+              <Text
+                fontSize="2xl"
+                fontWeight="bold"
+                color="white"
+                bgGradient="linear(to-r, #4a63c8, #5a73d8, #6a83e8)"
+                bgClip="text"
+                letterSpacing="wider"
+                textAlign="center"
               >
-                <Text>{item.name}</Text>
-                {isActive(item.path) && (
-                  <Box
-                    position="absolute"
-                    bottom="-16px"
-                    left="0"
-                    right="0"
-                    height="3px"
-                    bgGradient="linear(to-r, #4a63c8, #5a73d8)"
-                    borderRadius="full"
-                  />
-                )}
-              </Box>
-            ))}
-          </HStack>
+                OREKA
+              </Text>
+            </Box>
 
-          {/* Login/Identity Section */}
-          <Flex alignItems="center" width="180px" justifyContent="flex-end">
-            {isAuthenticated ? (
-              <Menu>
-                <MenuButton
-                  as={Button}
-                  size="sm"
-                  variant="outline"
-                  rightIcon={<ChevronDownIcon />}
-                  display={{ base: 'none', md: 'flex' }}
-                  colorScheme="blue"
-                  color="white"
-                  borderColor="rgba(255, 255, 255, 0.3)"
-                  _hover={{
-                    borderColor: "blue.400",
-                    bg: "rgba(66, 153, 225, 0.1)"
-                  }}
-                  _active={{
-                    borderColor: "blue.500",
-                    bg: "rgba(66, 153, 225, 0.2)"
-                  }}
+            {/* Desktop Navigation */}
+            <HStack spacing={8} display={{ base: 'none', md: 'flex' }} justifyContent="center" flex="1">
+              {navItems.map((item) => (
+                <Box
+                  key={item.name}
+                  position="relative"
+                  cursor="pointer"
+                  color={isActive(item.path) ? "white" : "whiteAlpha.700"}
+                  fontWeight={isActive(item.path) ? "semibold" : "normal"}
+                  _hover={{ color: "white" }}
+                  onClick={() => navigateTo(item.path)}
+                  transition="all 0.2s"
                 >
-                  <Text fontSize="sm" maxW="150px" isTruncated>
-                    {userPrincipal
-                      ? `User: ${userPrincipal.substring(0, 5)}...${userPrincipal.substring(userPrincipal.length - 3)}`
-                      : "Account"}
-                  </Text>
-                </MenuButton>
-                <MenuList bg="#0F1F3C" borderColor="rgba(255, 255, 255, 0.1)">
-                  <MenuItem
-                    bg="#0F1F3C"
-                    color="white"
-                    _hover={{ bg: "rgba(66, 153, 225, 0.2)" }}
-                    onClick={handleLogout}
-                  >
-                    Log Out
-                  </MenuItem>
-                </MenuList>
-              </Menu>
-            ) : (
-              <Button
-                colorScheme="blue"
-                size="sm"
-                onClick={handleLogin}
-                display={{ base: 'none', md: 'flex' }}
-                bg="rgba(74, 99, 200, 0.8)"
-                _hover={{ bg: "rgba(106, 131, 232, 0.8)" }}
-              >
-                Log In
-              </Button>
-            )}
+                  <Text fontSize="md">{item.name}</Text>
+                  {isActive(item.path) && (
+                    <Box
+                      position="absolute"
+                      bottom="-2px"
+                      left="0"
+                      width="100%"
+                      height="2px"
+                      bgGradient="linear(to-r, #4a63c8, #5a73d8, #6a83e8)"
+                      borderRadius="full"
+                    />
+                  )}
+                </Box>
+              ))}
+            </HStack>
 
-            {/* Mobile Navigation */}
+            {/* Authentication */}
+            <HStack spacing={4} justify="flex-end" minW="200px">
+              {isAuthenticated ? (
+                <HStack spacing={2}>
+                  {/* Principal display and copy button */}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    borderColor="rgba(255, 255, 255, 0.2)"
+                    color="white"
+                    bg="rgba(0, 0, 0, 0.2)"
+                    _hover={{ bg: "rgba(255, 255, 255, 0.1)" }}
+                    title={userPrincipal || ""}
+                  >
+                    {userPrincipal
+                      ? `${userPrincipal.substring(0, 6)}...${userPrincipal.substring(userPrincipal.length - 4)}`
+                      : "Account"}
+                  </Button>
+
+                  {/* Explicit Copy button */}
+                  {userPrincipal && (
+                    <Button
+                      size="sm"
+                      leftIcon={<CopyIcon />}
+                      colorScheme="blue"
+                      onClick={copyPrincipalToClipboard}
+                    >
+                      Copy
+                    </Button>
+                  )}
+
+                  {/* Logout button */}
+                  <Menu>
+                    <MenuButton
+                      as={IconButton}
+                      aria-label="Options"
+                      icon={<ChevronDownIcon />}
+                      variant="outline"
+                      size="sm"
+                      borderColor="rgba(255, 255, 255, 0.2)"
+                      color="white"
+                      bg="rgba(0, 0, 0, 0.2)"
+                      _hover={{ bg: "rgba(255, 255, 255, 0.1)" }}
+                    />
+                    <MenuList bg="#0a1647" borderColor="rgba(255, 255, 255, 0.1)">
+                      <MenuItem
+                        bg="#0a1647"
+                        color="white"
+                        _hover={{ bg: "rgba(255, 255, 255, 0.1)" }}
+                        onClick={handleLogout}
+                        fontSize="sm"
+                      >
+                        Log Out
+                      </MenuItem>
+                    </MenuList>
+                  </Menu>
+                </HStack>
+              ) : (
+                <Button
+                  onClick={handleLogin}
+                  bg="#4a63c8"
+                  color="white"
+                  size="sm"
+                  _hover={{ bg: "#5a73d8" }}
+                  borderRadius="md"
+                  fontSize="sm"
+                  fontWeight="medium"
+                >
+                  Log In
+                </Button>
+              )}
+            </HStack>
+
+            {/* Mobile menu button */}
             <MobileNav />
           </Flex>
-        </Flex>
-      </Container>
+        </Container>
+      </Box>
+
+      {/* Full-width Principal Copy Button - IMPOSSIBLE TO MISS */}
+      {isAuthenticated && userPrincipal && (
+        <Box width="100%" bg="#4a63c8" py={2} px={4}>
+          <Container maxW="container.lg">
+            <Flex justify="space-between" align="center">
+              <Text color="white" fontWeight="medium">Your Principal ID: <Text as="span" fontFamily="monospace">{userPrincipal}</Text></Text>
+              <Button
+                onClick={copyPrincipalToClipboard}
+                colorScheme="whiteAlpha"
+                leftIcon={<CopyIcon />}
+                size="md"
+              >
+                Copy Full Principal ID
+              </Button>
+            </Flex>
+          </Container>
+        </Box>
+      )}
     </Box>
   );
 }

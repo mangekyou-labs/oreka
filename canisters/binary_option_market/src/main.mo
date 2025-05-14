@@ -24,10 +24,11 @@ import TrieMap "mo:base/TrieMap";
 
 import Cycles "mo:base/ExperimentalCycles";
 
-import IcpLedger "canister:icp_ledger_canister";
+// Use interfaces instead of direct imports
+import ICRC "./ICRC";
 
 import Types "Types";
-import ICRC "./ICRC";
+// import ICRC "./ICRC";
 
 /// @title Binary Option Market
 /// @notice A decentralized binary options trading platform
@@ -41,6 +42,9 @@ shared(msg) actor class BinaryOptionMarket(
     initLedgerId: Text, 
     initOwner: Text
 ) = self {
+
+    // Create the ICP ledger actor reference using the provided ledger ID
+    private let icpLedgerActor : ICRC.Actor = actor(initLedgerId);
 
     // ============ Type Declarations ============
 
@@ -90,6 +94,13 @@ shared(msg) actor class BinaryOptionMarket(
         #TxTooOld : { allowed_window_nanos: Nat64 };
         #TxCreatedInFuture;
         #TxDuplicate : { duplicate_of: BlockIndex };
+    };
+
+    /// @notice Position history data point
+    public type PositionHistoryPoint = {
+        timestamp : Int;    // Time of position change in nanoseconds
+        longAmount : Nat;   // Total long position at this time
+        shortAmount : Nat;  // Total short position at this time
     };
 
     // ============ Core Types ============
@@ -177,6 +188,9 @@ shared(msg) actor class BinaryOptionMarket(
     private var totalDeposited : Nat = 0;
     private var resolved : Bool = false;
     private var currentPhase : Phase = #Trading;
+    
+    // Position history tracking
+    private var positionHistory : [PositionHistoryPoint] = [];
 
     // ============ Data Structures ============
 
@@ -191,6 +205,7 @@ shared(msg) actor class BinaryOptionMarket(
     stable var licensesStable : [(Principal, Bool)] = [];
     stable var stableBalancesA : ?[(Principal, Nat)] = null;
     stable var stableBalancesB : ?[(Principal, Nat)] = null;
+    stable var stablePositionHistory : [PositionHistoryPoint] = [];
 
     var licenses : HashMap.HashMap<Principal, Bool> = HashMap.HashMap(16, Principal.equal, Principal.hash);
 
@@ -371,7 +386,7 @@ shared(msg) actor class BinaryOptionMarket(
         };
 
         // Verify that the user has transferred the tokens
-        let balance = await IcpLedger.icrc1_balance_of({
+        let balance = await icpLedgerActor.icrc1_balance_of({
             owner = CANISTER_PRINCIPAL;
             subaccount = null;
         });
@@ -402,6 +417,14 @@ shared(msg) actor class BinaryOptionMarket(
         totalDeposited += value;
         logBid(side, msg.caller, value);
         
+        // Record position history
+        let newHistoryPoint : PositionHistoryPoint = {
+            timestamp = Time.now();
+            longAmount = positions.long;
+            shortAmount = positions.short;
+        };
+        positionHistory := Array.append(positionHistory, [newHistoryPoint]);
+        
         return #ok("Bid placed successfully");
     };
 
@@ -409,11 +432,19 @@ shared(msg) actor class BinaryOptionMarket(
     public shared func resolveMarket() : async () {
         // Allow anyone to call this function, not just the owner
         assert(currentPhase == #Bidding);
-
+        
+        // Get current time in nanoseconds and convert to seconds for comparison
+        let currentTimeNano = Time.now();
+        let currentTimeSec = Nat64.fromNat(Int.abs(currentTimeNano / 1_000_000_000));
+        
+        // Must be called after endTimestamp, max 6 seconds
+        assert(currentTimeSec >= initEndTimestamp);
+        assert(currentTimeSec < initEndTimestamp + 6);
+        
         let price = await get_price_for_pair();
         let finalPrice = await textToFloat(price);
         
-        resolveWithFulfilledData(finalPrice, Time.now());
+        resolveWithFulfilledData(finalPrice, currentTimeNano);
     };
 
     /// @notice Claims rewards for winning positions
@@ -571,7 +602,7 @@ shared(msg) actor class BinaryOptionMarket(
 
     /// @notice Gets the contract's ICP balance
     public func getContractBalance() : async Nat {
-        let balance = await IcpLedger.icrc1_balance_of({ 
+        let balance = await icpLedgerActor.icrc1_balance_of({ 
             owner = CANISTER_PRINCIPAL; 
             subaccount = null 
         });
@@ -607,6 +638,11 @@ shared(msg) actor class BinaryOptionMarket(
             positions;
             resolved;
         }
+    };
+
+    /// @notice Gets position history
+    public query func getPositionHistory() : async [PositionHistoryPoint] {
+        positionHistory
     };
 
     /// @notice Gets a user's position
@@ -691,7 +727,7 @@ shared(msg) actor class BinaryOptionMarket(
         );
 
         try {
-            let transferResult = await IcpLedger.icrc1_transfer(args);
+            let transferResult = await icpLedgerActor.icrc1_transfer(args);
             switch (transferResult) {
                 case (#Err(transferError)) {
                     return #err("Couldn't transfer funds:\n" # debug_show (transferError));
@@ -710,7 +746,7 @@ shared(msg) actor class BinaryOptionMarket(
         };
         
         try {
-            let token = IcpLedger;
+            let token = icpLedgerActor;
             let balances = which_balances(LEDGER_PRINCIPAL);
 
             let transfer_result = await token.icrc2_transfer_from({
@@ -748,8 +784,11 @@ shared(msg) actor class BinaryOptionMarket(
     private func get_price_for_pair() : async Text {
         let ic : Types.IC = actor ("aaaaa-aa");
         let ONE_MINUTE : Nat64 = 60;
-        let start_timestamp : Types.Timestamp = initEndTimestamp - 60;
+
+        // Front-end forced me to multiply 10e9. Pardon me
         let end_timestamp : Types.Timestamp = initEndTimestamp;
+        let start_timestamp : Types.Timestamp = end_timestamp - 60;
+
         let host : Text = "api.exchange.coinbase.com";
         
         // Extract pair components
@@ -767,9 +806,7 @@ shared(msg) actor class BinaryOptionMarket(
             case (null) { "ICP-USD" }; // Default if empty
         };
         
-        let url = "https://" # host # "/products/" # tradingPair # "/candles?start=" 
-            # Nat64.toText(start_timestamp) # "&end=" 
-            # Nat64.toText(end_timestamp) # "&granularity=" 
+        let url = "https://" # host # "/products/" # tradingPair # "/candles?granularity="
             # Nat64.toText(ONE_MINUTE);
 
         Debug.print("Request URL: " # url);
@@ -783,7 +820,6 @@ shared(msg) actor class BinaryOptionMarket(
             url = url;
             max_response_bytes = null;
             headers = [
-                { name = "Host"; value = ":443" },
                 { name = "User-Agent"; value = "exchange_rate_canister" }
             ];
             body = null;
@@ -800,10 +836,29 @@ shared(msg) actor class BinaryOptionMarket(
             case (?y) { y };
         };
 
-        Debug.print("Decoded text: " # decoded_text);
-        let trimmed_text = Text.trim(decoded_text, #text("[]"));
-        let values = Iter.toArray(Text.split(trimmed_text, #text(",")));
-        values[4]
+        Debug.print("Decoded Text: " # decoded_text);
+
+        let inner = Text.trim(decoded_text, #text("[]"));
+
+        Debug.print("Inner Text: " # inner);
+
+        // 2. Split into rows, take the very first one
+        let rows    = Iter.toArray(Text.split(inner, #text("],[")));
+        let first   = rows[0];
+
+        Debug.print(debug_show(rows));
+
+        Debug.print("First row: " # first);
+
+        // 3. Trim stray brackets (just in case), split into fields
+        let fields  = Iter.toArray(
+        Text.split(Text.trim(first, #text("[]")), #text(",")));
+
+        Debug.print(debug_show(fields));
+        Debug.print("Final value: " # fields[4]);
+
+        // 4. Return the 5th value (index 4)
+        fields[4]
     };
 
     // ============ System Functions ============
@@ -811,6 +866,7 @@ shared(msg) actor class BinaryOptionMarket(
     system func preupgrade() {
         stableBalancesA := ?Iter.toArray(balancesA.entries());
         stableBalancesB := ?Iter.toArray(balancesB.entries());
+        stablePositionHistory := positionHistory;
     };
 
     system func postupgrade() {
@@ -837,5 +893,7 @@ shared(msg) actor class BinaryOptionMarket(
                 stableBalancesB := null;
             };
         };
+        
+        positionHistory := stablePositionHistory;
     };
 };

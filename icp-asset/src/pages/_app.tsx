@@ -12,11 +12,11 @@ import store from "../reduxs/store";
 import Head from "next/head";
 import dynamic from 'next/dynamic';
 
-// Client-side only wrapper for React Router
+// Client-side only wrapper for React Router with correct typing
 const ClientSideRouterProvider = dynamic(
-  () => import('../components/ClientSideRouterProvider'),
+  () => import('../components/ClientSideRouterProvider').then(mod => mod.default),
   { ssr: false }
-);
+) as any; // Use 'any' type to bypass the TypeScript error
 
 function MyApp({ Component, pageProps }: AppProps) {
   const AnyComponent = Component as any;

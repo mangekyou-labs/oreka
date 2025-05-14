@@ -1,16 +1,28 @@
-import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+/*
+  MarketCharts.tsx
+  Renders interactive charts for binary option markets showing price history and position distribution
+  Supports both price trend visualization and position ratio tracking over time
+*/
+import React, { useEffect, useState, useRef, useMemo, useCallback, SetStateAction, Dispatch } from 'react';
 import { Box, Tabs, TabList, TabPanels, Tab, TabPanel, HStack, Button, Text, ButtonGroup, Flex, Skeleton, Tooltip as ChakraTooltip, VStack } from '@chakra-ui/react';
 import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine, Area, AreaChart } from 'recharts';
 import { PriceService } from '../../services/PriceService';
 import { format, addDays, subDays } from 'date-fns';
 import { STRIKE_PRICE_MULTIPLIER } from '../../utils/constants';
 
-
+/**
+ * Position interface
+ * Represents the total number of long and short positions
+ */
 interface Position {
   long: number;
   short: number;
 }
 
+/**
+ * PositionPoint interface
+ * Represents a single data point in the position chart
+ */
 interface PositionPoint {
   timestamp: number;
   longPercentage: number | null;
@@ -19,6 +31,10 @@ interface PositionPoint {
   isCurrentPoint?: boolean;
 }
 
+/**
+ * MarketChartsProps interface
+ * Defines the props for the MarketCharts component
+ */
 interface MarketChartsProps {
   chartData: any[];
   positionHistory: PositionPoint[];
@@ -34,6 +50,8 @@ interface MarketChartsProps {
   };
   biddingStartTime: number;
   maturityTime: number;
+  enhancedPositionData: PositionPoint[]; // Add this line
+  setEnhancedPositionData: Dispatch<SetStateAction<PositionPoint[]>>;
 }
 
 /**
@@ -75,6 +93,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
   const [diffString, setDiffString] = useState<string>('');
   const [percentDiff, setPercentDiff] = useState<number>(0);
 
+  /**
+   * Effect to load cached contract data from localStorage
+   * Parses the data and updates the effective chart symbol
+   */
   useEffect(() => {
     const cachedData = localStorage.getItem('contractData');
     if (cachedData) {
@@ -101,21 +123,28 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     }
   }, [chartSymbol]);
 
-  // Update current time at regular intervals for real-time position tracking
+  /**
+   * Effect to update current time at regular intervals for real-time position tracking
+   * Ensures the current time is updated and animation frame is requested
+   */
   useEffect(() => {
     const updateTime = () => {
-      setCurrentTime(Math.floor(Date.now() / 1000));
-      animationFrameRef.current = requestAnimationFrame(updateTime);
+      const now = Math.floor(Date.now() / 1000);
+      if (now <= maturityTime) {
+        setCurrentTime(now);
+        animationFrameRef.current = requestAnimationFrame(updateTime);
+      }
     };
-
+  
     animationFrameRef.current = requestAnimationFrame(updateTime);
-
+  
     return () => {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, []);
+  }, [maturityTime]);
+  
 
   /**
    * Process and filter position history data based on current time
@@ -126,6 +155,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
       return;
     }
 
+    /**
+     * Throttled update function to prevent excessive re-renders
+     * Filters position history to only show data up to current time
+     */
     const throttledUpdate = () => {
       if (positionHistory.length > 0) {
         // Filter position history to only show data up to current time
@@ -330,6 +363,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
 
   };
 
+  /**
+   * Generate enhanced position data for smoother chart visualization
+   * Interpolates points between bidding start and maturity time
+   */
   const generateEnhancedPositionData = useCallback((
     originalData: PositionPoint[],
     biddingStart: number,
@@ -348,6 +385,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
 
     let result: PositionPoint[] = [];
 
+    /**
+     * Add initial point at bidding start
+     * Represents the starting position at the beginning of the market
+     */
     result.push({
       timestamp: biddingStart,
       longPercentage: 50,
@@ -385,12 +426,25 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
         isCurrentPoint: true
       });
     }
+    if (current >= maturityEnd) {
+      result.push({
+        timestamp: maturityEnd,
+        longPercentage: currentLongPercentage,
+        shortPercentage: currentShortPercentage,
+        isMainPoint: true,
+        isCurrentPoint: false
+      });
+    }
 
     result.sort((a, b) => a.timestamp - b.timestamp);
 
     return result;
   }, []);
 
+  /**
+   * Render position distribution chart
+   * Displays long and short position percentages
+   */
   const renderPositionChart = () => {
     let longPercentage = 50;
     let shortPercentage = 50;
@@ -402,13 +456,17 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     }
 
     return (
+      /**
+       * Position distribution chart container
+       * Displays long and short position percentages
+       */
       <Box p={4} bg="##0A0B0E" borderRadius="md" boxShadow="lg">
         <Flex justify="space-between" mb={4}>
           <Text fontSize="xl" fontWeight="bold" color="white">Position Chart</Text>
           <HStack spacing={6}>
             <HStack spacing={1}>
               <Box w={3} h={3} borderRadius="full" bg="#00D7B5" />
-              <Text color="#00D7B5" fontWeight="bold">LONG: {longPercentage}%</Text>
+              <Text color="#00D7B5" fontWeight="bold">LONG: {longPercentage.toFixed(2)}%</Text>
             </HStack>
             <HStack spacing={1}>
               <Box w={3} h={3} borderRadius="full" bg="#FF6384" />
@@ -418,17 +476,28 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
         </Flex>
 
         {enhancedPositionData.length === 0 ? (
-          <Flex height="300px" justify="center" align="center" color="gray.500">
+          /**
+           * Display a message if no position data is available
+           * Centers the message vertically and horizontally
+           */
+          <Flex height="500px" justify="center" align="center" color="gray.500">
             <Text>No position data available</Text>
           </Flex>
         ) : (
+          /**
+           * Responsive container for the position chart
+           * Ensures the chart scales properly on different screen sizes
+           */
           <ResponsiveContainer width="100%" height={500}>
             <LineChart
               data={enhancedPositionData}
               margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-
+              /**
+               * X-axis configuration
+               * Displays timestamps and formats them for better readability
+               */
               <XAxis
                 dataKey="timestamp"
                 tickFormatter={formatPositionXAxisTick}
@@ -439,6 +508,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 axisLine={{ stroke: '#333' }}
               />
 
+              /**
+               * Y-axis configuration
+               * Displays position percentages and formats them for better readability
+               */
               <YAxis
                 domain={[0, 100]}
                 tickCount={5}
@@ -447,8 +520,16 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 axisLine={{ stroke: '#333' }}
               />
 
+              /**
+               * Tooltip configuration
+               * Displays detailed information about the hovered data point
+               */
               <Tooltip content={<PositionChartTooltip />} />
 
+              /**
+               * Long position line
+               * Displays the long position percentage over time
+               */
               <Line
                 type="monotone"
                 dataKey="longPercentage"
@@ -460,6 +541,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 name="LONG"
               />
 
+              /**
+               * Short position line
+               * Displays the short position percentage over time
+               */
               <Line
                 type="monotone"
                 dataKey="shortPercentage"
@@ -470,8 +555,6 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 isAnimationActive={false}
                 name="SHORT"
               />
-
-
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -479,6 +562,9 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
     );
   }
 
+  /**
+   * Update percentage difference when price data or strike price changes
+   */
   useEffect(() => {
     if (optimizedPriceData.length > 1) {
       const currentPrice = optimizedPriceData[optimizedPriceData.length - 1].close;
@@ -503,24 +589,28 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
 
   // Ensure strike price is properly formatted for display
   // Convert from string or large integer to decimal value if needed
-  const displayStrikePrice = typeof strikePrice === 'string'
-    ? parseFloat(strikePrice)
-    : typeof strikePrice === 'number'
-      ? strikePrice
-      : parseFloat(strikePrice.toString()) / STRIKE_PRICE_MULTIPLIER;
+  const displayStrikePrice = typeof strikePrice === 'string' 
+    ? parseFloat(strikePrice) 
+    : typeof strikePrice === 'number' 
+      ? strikePrice 
+      : parseFloat(strikePrice)/ 10 ** 8;
 
   // Render price chart if chartType is 'price'
   if (chartType === 'price') {
     // const lineColor = strikePrice > 0 && optimizedPriceData.length > 0 && optimizedPriceData[optimizedPriceData.length - 1]?.close > strikePrice ? "#FF6384" : "#00D7B5";
     const lineColor = "#3ABEFF";
     return (
+      /**
+       * Price chart container
+       * Displays the price chart and relevant statistics
+       */
       <Box p={4} bg="#0A0B0E" borderRadius="md" boxShadow="lg">
         {/* Price display and statistics header */}
         <Flex justify="space-between" align="center" mb={4} direction="column">
           <Flex w="100%" justify="space-between" align="center" mb={2}>
             <VStack align="flex-start" fontSize="xl">
               <Text color="white" fontSize="4xl" fontWeight="bold">
-                ${hoverData?.close ? hoverData.close.toFixed(2) : '0.00'}
+                ${hoverData?.close ? hoverData.close.toFixed(4) : '0.00'}
               </Text>
               <Text
                 color={percentDiff >= 0 ? "#00D7B5" : "#FF6384"}

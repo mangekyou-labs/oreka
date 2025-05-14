@@ -2,160 +2,180 @@ import React, { useEffect, useState } from 'react';
 import { ethers } from 'ethers';
 import { Box, Button, Input, VStack, useToast, HStack, Icon, SimpleGrid, Text, Select, Divider, Progress, InputGroup, InputRightAddon, Spinner, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip, InputRightElement } from '@chakra-ui/react';
 import { FaEthereum, FaWallet, FaArrowUp, FaArrowDown, FaClock } from 'react-icons/fa';
-import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketABI.json';
-import Factory from '../contracts/abis/FactoryABI.json';  // ABI of Factory contract
+import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketChainlinkABI.json';
+import Factory from '../contracts/abis/FactoryABI.json';  
 import { FACTORY_ADDRESS } from '../config/contracts';
 import { setContractTradingPair } from '../config/tradingPairs';
 import { useAuth } from '../context/AuthContext';
 import { UnorderedList, ListItem } from '@chakra-ui/react';
 import { PriceService } from '../services/PriceService';
 import { format, toZonedTime } from 'date-fns-tz';
+import { useRouter } from 'next/router';
 
+
+// Define the properties expected by the Owner component
 interface OwnerProps {
-  address: string;
+  address: string; // Wallet address of the user
 }
 
-// Add interface for Coin with currentPrice
+// Define the structure of a Coin object with its properties
 interface Coin {
-  value: string;
-  label: string;
-  currentPrice: number;
+  value: string; // The value identifier for the coin
+  label: string; // The display label for the coin
+  currentPrice: number; // The current price of the coin
+  priceFeedAddress: string; // The address of the price feed for the coin
 }
 
-// Add constant for converting real number
-const STRIKE_PRICE_MULTIPLIER = 100000000; // 10^8 - allow up to 8 decimal places
+// Constant for converting real numbers to a specific format
+const STRIKE_PRICE_MULTIPLIER = 100000000; // 10^8 - allows up to 8 decimal places
 
 // Owner component: Allows users to create and manage binary option markets
-// This component handles market creation, fee setting, and contract deployment
 const Owner: React.FC<OwnerProps> = ({ address }) => {
   // Authentication context for wallet connection and balance
   const { isConnected, walletAddress, balance, connectWallet, refreshBalance } = useAuth();
 
-  // State for contract information
-  const [contractAddress, setContractAddress] = useState('');
-  const [strikePrice, setStrikePrice] = useState('');
-  const [contractBalance, setContractBalance] = useState('');
-  const [deployedContracts, setDeployedContracts] = useState<string[]>([]); // Stores list of user's deployed contracts
+  // State variables for contract information
+  const [contractAddress, setContractAddress] = useState(''); // Address of the deployed contract
+  const [strikePrice, setStrikePrice] = useState(''); // Strike price for the option
+  const [contractBalance, setContractBalance] = useState(''); // Balance of the contract
+  const [deployedContracts, setDeployedContracts] = useState<string[]>([]); // List of user's deployed contracts
 
-  // State for trading pair selection
-  const [selectedCoin, setSelectedCoin] = useState<Coin | null>(null);
+  // State for selected trading pair
+  const [selectedCoin, setSelectedCoin] = useState<Coin | null>(null); // Currently selected coin
 
   // State for maturity date and time
-  const [maturityDate, setMaturityDate] = useState('');
-  const [maturityTime, setMaturityTime] = useState('');
+  const [maturityDate, setMaturityDate] = useState(''); // Maturity date of the option
+  const [maturityTime, setMaturityTime] = useState(''); // Maturity time of the option
 
   // State for gas settings and fee estimation
-  const [gasPrice, setGasPrice] = useState('78');
-  const [estimatedGasFee, setEstimatedGasFee] = useState('276.40');
-  const [estimatedGasUnits, setEstimatedGasUnits] = useState<string>("0");
-  const [isCalculatingFee, setIsCalculatingFee] = useState(false);
-  const [daysToExercise, setDaysToExercise] = useState<string>('Not set');
+  const [gasPrice, setGasPrice] = useState('78'); // Current gas price in gwei
+  const [estimatedGasFee, setEstimatedGasFee] = useState('276.40'); // Estimated gas fee in USD
+  const [estimatedGasUnits, setEstimatedGasUnits] = useState<string>("0"); // Estimated gas units required
+  const [isCalculatingFee, setIsCalculatingFee] = useState(false); // Flag to indicate if fee calculation is in progress
+  const [daysToExercise, setDaysToExercise] = useState<string>('Not set'); // Days until the option can be exercised
 
   // State for price tracking
-  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
-  const [priceChangePercent, setPriceChangePercent] = useState<number>(0);
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null); // Current price of the selected coin
+  const [priceChangePercent, setPriceChangePercent] = useState<number>(0); // Percentage change in price
 
   // Available trading pairs with current prices
   const [availableCoins, setAvailableCoins] = useState<Coin[]>([
-    { value: "BTCUSD", label: "BTC/USD", currentPrice: 47406.92 },
-    { value: "ETHUSD", label: "ETH/USD", currentPrice: 3521.45 },
-    { value: "ICPUSD", label: "ICP/USD", currentPrice: 12.87 }
+    { value: "BTCUSD", label: "BTC/USD", currentPrice: 47406.92, priceFeedAddress: "0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43" },
+    { value: "ETHUSD", label: "ETH/USD", currentPrice: 3521.45, priceFeedAddress: "0x694AA1769357215DE4FAC081bf1f309aDC325306" },
+    { value: "LINKUSD", label: "LINK/USD", currentPrice: 12.87, priceFeedAddress: "0xc59E3633BAAC79493d908e63626716e204A45EdF" },
+    { value: "SNXUSD", label: "SNX/USD", currentPrice: 0.65, priceFeedAddress: "0xc0F82A46033b8BdBA4Bb0B0e28Bc2006F64355bC" },
+    { value: "WSTETHUSD", label: "WSTETH/USD", currentPrice: 2000.00, priceFeedAddress: "0xaaabb530434B0EeAAc9A42E25dbC6A22D7bE218E" },
   ]);
 
   // State for market creator fee
-  const [feePercentage, setFeePercentage] = useState<string>("1.0");
-  const [showTooltip, setShowTooltip] = useState(false);
+  const [feePercentage, setFeePercentage] = useState<string>("1.0"); // Percentage fee for market creation
+  const [showTooltip, setShowTooltip] = useState(false); // Flag to show tooltip
+
+  // State for index background
+  const [indexBg, setIndexBg] = useState<number>(1); // Background index for UI
 
   // Factory contract address from config
-  const FactoryAddress = FACTORY_ADDRESS;
-  const toast = useToast();
+  const FactoryAddress = FACTORY_ADDRESS; // Address of the factory contract
+  const toast = useToast(); // Toast notification handler
+
+  // Router for redirecting to the new contract page
+  const router = useRouter();
 
   // Handler for coin selection dropdown
   const handleCoinSelect = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const selected = availableCoins.find(coin => coin.value === event.target.value);
-    setSelectedCoin(selected || null);
-    setCurrentPrice(null);
+    const selected = availableCoins.find(coin => coin.value === event.target.value); // Find selected coin
+    setSelectedCoin(selected || null); // Set selected coin state
+    setCurrentPrice(null); // Reset current price
   };
 
   // Calculate network fee (gas) for contract deployment
   const calculateNetworkFee = async () => {
+    // Check if all required fields are filled
     if (!selectedCoin || !strikePrice || !maturityDate || !maturityTime) {
-      setEstimatedGasFee(""); // Default value
+      setEstimatedGasFee(""); // Default value if fields are not filled
       return;
     }
 
     try {
       setIsCalculatingFee(true);
-
+  
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
-
-      // Convert strikePrice to BigNumber
-      const strikePriceValue = ethers.utils.parseUnits(strikePrice, "0");
-
-      // Convert maturity date and time to timestamp
+  
+      // Convert strike price to BigNumber
+      const strikePriceFloat = parseFloat(strikePrice);
+      const strikePriceInteger = Math.round(strikePriceFloat * STRIKE_PRICE_MULTIPLIER);
+      const strikePriceValue = ethers.BigNumber.from(strikePriceInteger.toString());
+  
+      // Convert maturity datetime to timestamp
       const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
-
-      // Create a factory to estimate gas when deploy
+  
+      // Convert fee to integer
+      const feeValue = Math.round(parseFloat(feePercentage) * 10);
+  
+      // Use the actual priceFeedAddress from selectedCoin
+      const normalizedPriceFeedAddress = ethers.utils.getAddress(selectedCoin.priceFeedAddress);
+  
+      // Generate random indexBg for estimation
+      const randomIndexBg = Math.floor(Math.random() * 10) + 1;
+  
       const factory = new ethers.ContractFactory(
         BinaryOptionMarket.abi,
         BinaryOptionMarket.bytecode,
         signer
       );
-
-      // Convert fee to integer (multiply by 10 to handle decimal)
-      const feeValue = Math.round(parseFloat(feePercentage) * 10);
-
-      // Create data for deploy - add feeValue here
-      const deployData = factory.getDeployTransaction(
+  
+      // Create deploy transaction
+      const deployTx = factory.getDeployTransaction(
         strikePriceValue,
         await signer.getAddress(),
         selectedCoin.label,
+        normalizedPriceFeedAddress,
         maturityTimestamp,
-        feeValue
-      ).data || '0x';
-
-      // Estimate gas units needed for deploy
-      const gasUnits = await provider.estimateGas({
+        feeValue,
+        randomIndexBg
+      );
+  
+      const gasUnitsDeploy = await provider.estimateGas({
         from: walletAddress,
-        data: deployData
+        data: deployTx.data || "0x",
       });
-
-      // Estimate gas for registering with Factory
-      const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, signer);
-      const factoryData = factoryContract.interface.encodeFunctionData('deploy', [FACTORY_ADDRESS]); // Temporary address
-
-      const factoryGasUnits = await provider.estimateGas({
+  
+      // Fake deploy address to estimate Factory.deploy
+      const fakeAddress = ethers.Wallet.createRandom().address;
+  
+      const factoryContract = new ethers.Contract(FACTORY_ADDRESS, Factory.abi, signer);
+      const factoryData = factoryContract.interface.encodeFunctionData('deploy', [fakeAddress]);
+  
+      const gasUnitsFactory = await provider.estimateGas({
         from: walletAddress,
-        to: FactoryAddress,
-        data: factoryData
+        to: FACTORY_ADDRESS,
+        data: factoryData,
       });
-
-      // Total gas units needed
-      const totalGasUnits = gasUnits.add(factoryGasUnits);
+  
+      const totalGasUnits = gasUnitsDeploy.add(gasUnitsFactory);
       setEstimatedGasUnits(totalGasUnits.toString());
-
-      // Calculate gas cost
+  
       const gasPriceWei = ethers.utils.parseUnits(gasPrice, "gwei");
       const gasFeeWei = totalGasUnits.mul(gasPriceWei);
       const gasFeeEth = parseFloat(ethers.utils.formatEther(gasFeeWei));
-
-      // Get current ETH price to calculate USD value
+  
+      // Get live ETH price
       const priceService = PriceService.getInstance();
-      let ethUsdPrice = 3500;
+      let usdPrice = 0;
       try {
-        const ethPriceData = await priceService.fetchPrice('ETH-USD');
-        ethUsdPrice = ethPriceData.price;
-      } catch (error) {
-        console.error('Error fetching ETH price:', error);
+        const priceData = await priceService.fetchPrice(selectedCoin?.label);
+        usdPrice = priceData.price;
+      } catch (err) {
+        console.error("ETH price fetch failed:", err);
+        usdPrice = 3500; // fallback
       }
-
-      // Calculate fee in USD
-      const gasFeeUsd = (gasFeeEth * ethUsdPrice).toFixed(2);
+  
+      const gasFeeUsd = (gasFeeEth * usdPrice).toFixed(2);
       setEstimatedGasFee(gasFeeUsd);
-    } catch (error) {
-      console.error('Error calculating network fee:', error);
-      setEstimatedGasFee("276.40"); // Default value if error
+    } catch (err) {
+      console.error("Error calculating gas fee:", err);
+      setEstimatedGasFee("276.40"); // fallback
     } finally {
       setIsCalculatingFee(false);
     }
@@ -163,19 +183,20 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
   // Listen for contract deployment events from the Factory contract
   useEffect(() => {
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
-    const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, provider);
+    const provider = new ethers.providers.Web3Provider(window.ethereum); // Create provider
+    const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, provider); // Create factory contract instance
 
     // Listen to Deployed event
     factoryContract.on("Deployed", (owner, newContractAddress, index) => {
-      console.log("Event 'Deployed' received:");
-      console.log("Owner:", owner);
-      console.log("New contract deployed:", newContractAddress);
-      console.log("Index:", index);
+      console.log("Event 'Deployed' received:"); // Log event
+      console.log("Owner:", owner); // Log owner address
+      console.log("New contract deployed:", newContractAddress); // Log new contract address
+      console.log("Index:", index); // Log index
 
-      setContractAddress(newContractAddress);
-      setDeployedContracts(prev => [...prev, newContractAddress]); // Update contract list
+      setContractAddress(newContractAddress); // Update contract address state
+      setDeployedContracts(prev => [...prev, newContractAddress]); // Update deployed contracts list
 
+      // Show success toast notification
       toast({
         title: "Contract deployed successfully!",
         description: `New Contract Address: ${newContractAddress}`,
@@ -187,113 +208,115 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
     return () => {
       // Cleanup: remove listener when component unmounts
-      console.log("Removing event listener on Factory contract...");
-      factoryContract.removeAllListeners("Deployed");
+      console.log("Removing event listener on Factory contract..."); // Log cleanup
+      factoryContract.removeAllListeners("Deployed"); // Remove event listener
     };
   }, []);
 
   // Recalculate network fee when parameters change
   useEffect(() => {
     const timer = setTimeout(() => {
-      calculateNetworkFee();
+      calculateNetworkFee(); // Call fee calculation function
     }, 500); // Delay 500ms to avoid too many calculations
 
-    return () => clearTimeout(timer);
+    return () => clearTimeout(timer); // Cleanup timer
   }, [selectedCoin, strikePrice, maturityDate, maturityTime, gasPrice]);
 
   // Handler for gas price dropdown
   const handleGasPriceChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const newGasPrice = event.target.value;
-    setGasPrice(newGasPrice);
+    const newGasPrice = event.target.value; // Get new gas price from dropdown
+    setGasPrice(newGasPrice); // Update gas price state
   };
 
   // Update wallet balance in real time
   useEffect(() => {
     if (isConnected) {
       // Update initial balance
-      refreshBalance();
+      refreshBalance(); // Refresh wallet balance
 
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      provider.on("block", refreshBalance);
+      const provider = new ethers.providers.Web3Provider(window.ethereum); // Create provider
+      provider.on("block", refreshBalance); // Listen for block events to refresh balance
 
       return () => {
-        provider.removeAllListeners("block");
+        provider.removeAllListeners("block"); // Cleanup block listener
       };
     }
   }, [isConnected, refreshBalance]);
 
   // Fetch wallet balance
+  // Fetch wallet balance
   const fetchBalance = async () => {
-    if (!walletAddress) return;
+    if (!walletAddress) return; // Exit if no wallet address
     try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const balanceWei = await provider.getBalance(walletAddress);
-      const balanceEth = parseFloat(ethers.utils.formatEther(balanceWei));
-      refreshBalance();
+      const provider = new ethers.providers.Web3Provider(window.ethereum); // Create provider
+      const balanceWei = await provider.getBalance(walletAddress); // Get wallet balance in Wei
+      const balanceEth = parseFloat(ethers.utils.formatEther(balanceWei)); // Convert balance to ETH
+      refreshBalance(); // Refresh wallet balance
     } catch (error) {
-      console.error("Error fetching balance:", error);
+      console.error("Error fetching balance:", error); // Log error if fetching fails
     }
   };
 
   // Listen to blockchain events to update balance
   useEffect(() => {
-    if (!walletAddress) return;
+    if (!walletAddress) return; // Exit if no wallet address
 
     // Update initial balance
-    fetchBalance();
+    fetchBalance(); // Fetch wallet balance
 
     // Listen to block event
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    const provider = new ethers.providers.Web3Provider(window.ethereum); // Create provider
     provider.on("block", () => {
-      fetchBalance();
+      fetchBalance(); // Fetch balance on block event
     });
 
     // Use type assertion for ethereum
-    const ethereum = window.ethereum as any;
-    ethereum.on('accountsChanged', fetchBalance);
+    const ethereum = window.ethereum as any; // Type assertion for Ethereum object
+    ethereum.on('accountsChanged', fetchBalance); // Listen for account changes to fetch balance
 
     return () => {
-      provider.removeAllListeners("block");
+      provider.removeAllListeners("block"); // Cleanup block listener
       if (ethereum && typeof ethereum.removeListener === 'function') {
-        ethereum.removeListener('accountsChanged', fetchBalance);
+        ethereum.removeListener('accountsChanged', fetchBalance); // Cleanup account change listener
       }
     };
   }, [walletAddress]);
 
   // Reset form to default values
   const resetForm = () => {
-    setSelectedCoin(null);
-    setStrikePrice('');
-    setMaturityDate('');
-    setMaturityTime('');
-    setFeePercentage('1');
-    setDaysToExercise('Not set');
-    setCurrentPrice(null);
-    setPriceChangePercent(0);
+    setSelectedCoin(null); // Reset selected coin
+    setStrikePrice(''); // Reset strike price
+    setMaturityDate(''); // Reset maturity date
+    setMaturityTime(''); // Reset maturity time
+    setFeePercentage('1'); // Reset fee percentage
+    setDaysToExercise('Not set'); // Reset days to exercise
+    setCurrentPrice(null); // Reset current price
+    setPriceChangePercent(0); // Reset price change percentag
   };
 
   // Estimate gas for contract deployment
   const estimateGas = async () => {
     try {
+      // Check if all required fields are filled
       if (!selectedCoin || !strikePrice || !maturityDate || !maturityTime) {
-        return;
+        return; // Exit if fields are not filled
       }
 
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
+      const provider = new ethers.providers.Web3Provider(window.ethereum); // Create provider
+      const signer = provider.getSigner(); // Get signer
 
       // Convert float to large integer
-      const strikePriceFloat = parseFloat(strikePrice);
-      const strikePriceInteger = Math.round(strikePriceFloat * STRIKE_PRICE_MULTIPLIER);
-      const strikePriceValue = ethers.BigNumber.from(strikePriceInteger.toString());
+      const strikePriceFloat = parseFloat(strikePrice); // Parse strike price as float
+      const strikePriceInteger = Math.round(strikePriceFloat * STRIKE_PRICE_MULTIPLIER); // Convert to integer
+      const strikePriceValue = ethers.BigNumber.from(strikePriceInteger.toString()); // Convert to BigNumber
 
-      const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
+      const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000); // Get maturity timestamp
 
       // Convert fee to integer (multiply by 10 to handle decimal)
-      const feeValue = Math.round(parseFloat(feePercentage) * 10);
+      const feeValue = Math.round(parseFloat(feePercentage) * 10); // Convert fee percentage to integer
 
       // Sample index background (using 5 as an example for estimation)
-      const indexBg = 5;
+      const indexBg = Math.floor(Math.random() * 10) + 1; // Generate random index background
 
       // Create contract factory to estimate gas
       const factory = new ethers.ContractFactory(
@@ -312,56 +335,56 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
           maturityTimestamp,
           feeValue,
           indexBg
-        ).data || '0x'
+        ).data || '0x' // Get deploy transaction data
       });
 
       // Calculate gas fee based on current gas price
-      const gasPriceWei = ethers.utils.parseUnits(gasPrice, "gwei");
-      const gasFeeEth = parseFloat(ethers.utils.formatEther(estimatedGas.mul(gasPriceWei)));
+      const gasPriceWei = ethers.utils.parseUnits(gasPrice, "gwei"); // Convert gas price to Wei
+      const gasFeeEth = parseFloat(ethers.utils.formatEther(estimatedGas.mul(gasPriceWei))); // Calculate gas fee in ETH
 
       // Fetch current ETH price from PriceService instead of using hardcoded value
-      const priceService = PriceService.getInstance();
+      const priceService = PriceService.getInstance(); // Get price service instance
       let ethUsdPrice = 3500; // Default fallback value if fetch fails
 
       try {
         // Use ETH-USD as the symbol for Ethereum price
-        const ethPriceData = await priceService.fetchPrice('ETH-USD');
-        ethUsdPrice = ethPriceData.price;
-        console.log('Current ETH price:', ethUsdPrice);
+        const ethPriceData = await priceService.fetchPrice('ETH-USD'); // Fetch current ETH price
+        ethUsdPrice = ethPriceData.price; // Update ETH price
+        console.log('Current ETH price:', ethUsdPrice); // Log current ETH price
       } catch (priceError) {
-        console.error('Error fetching ETH price:', priceError);
+        console.error('Error fetching ETH price:', priceError); // Log error if fetching fails
         // Continue with default value if fetch fails
       }
 
       // Calculate fee in USD using the fetched ETH price
-      const gasFeeUsd = (gasFeeEth * ethUsdPrice).toFixed(2);
-      setEstimatedGasFee(gasFeeUsd);
+      const gasFeeUsd = (gasFeeEth * ethUsdPrice).toFixed(2); // Calculate gas fee in USD
+      setEstimatedGasFee(gasFeeUsd); // Set estimated gas fee state
     } catch (error) {
-      console.error("Error estimating gas:", error);
-      setEstimatedGasFee("276.40"); // Default value if error
+      console.error("Error estimating gas:", error); // Log error if estimation fails
+      setEstimatedGasFee("276.40"); // Default value if error occurs
     }
   };
 
   // Call the estimate gas function when necessary params change
   useEffect(() => {
-    estimateGas();
+    estimateGas(); // Call estimate gas function
   }, [selectedCoin, strikePrice, maturityDate, maturityTime, gasPrice]);
 
   // Handler for fee input changes
   const handleFeeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
+    const value = e.target.value; // Get input value
     // Only allow numbers and decimal point
     if (/^\d*\.?\d*$/.test(value)) {
-      const numValue = parseFloat(value);
+      const numValue = parseFloat(value); // Parse input value as float
       if (isNaN(numValue) || value === '') {
-        setFeePercentage('');
+        setFeePercentage(''); // Reset fee percentage if invalid
       } else if (numValue < 0.1) {
-        setFeePercentage('0.1');
+        setFeePercentage('0.1'); // Set minimum fee percentage
       } else if (numValue > 20) {
-        setFeePercentage('20');
+        setFeePercentage('20'); // Set maximum fee percentage
       } else {
         // Ensure value has 1 decimal place to sync with slider
-        setFeePercentage(numValue.toFixed(1));
+        setFeePercentage(numValue.toFixed(1)); // Set fee percentage with one decimal place
       }
     }
   };
@@ -369,93 +392,156 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   // Deploy a new binary option market contract
   const deployContract = async () => {
     try {
-      // Validation checks
+      // Check if all required fields are filled
       if (!selectedCoin || !strikePrice || !maturityDate || !maturityTime) {
         toast({
-          title: "Error",
-          description: "Please fill in all required fields",
-          status: "error",
-          duration: 5000,
-          isClosable: true
+          title: "Missing information", // Toast title
+          description: "Please fill in all required fields.", // Toast description
+          status: "error", // Toast status
+          duration: 5000, // Toast duration
+          isClosable: true, // Allow toast to be closed
         });
-        return;
+        return; // Exit if fields are not filled
       }
 
-      // Get timestamp in Eastern Time
-      const maturityTimestamp = createMaturityTimestamp();
-
-      // Check if maturityTimestamp is in the future
-      if (maturityTimestamp <= Math.floor(Date.now() / 1000)) {
-        toast({
-          title: "Error",
-          description: "Maturity time must be in the future",
-          status: "error",
-          duration: 5000,
-          isClosable: true
-        });
-        return;
-      }
-
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
+      const provider = new ethers.providers.Web3Provider(window.ethereum); // Create provider
+      const signer = provider.getSigner(); // Get signer
+      
+      // Get current network to adapt parameters
+      const network = await provider.getNetwork(); // Get network information
+      console.log("Deploying on network:", network.name, network.chainId); // Log network information
 
       // Convert float to large integer by multiplying with MULTIPLIER
-      const strikePriceFloat = parseFloat(strikePrice);
-      const strikePriceInteger = Math.round(strikePriceFloat * STRIKE_PRICE_MULTIPLIER);
-      const strikePriceValue = ethers.BigNumber.from(strikePriceInteger.toString());
-
-      // Set gas price
-      const overrides = {
-        gasPrice: ethers.utils.parseUnits(gasPrice, "gwei")
-      };
-
+      const strikePriceFloat = parseFloat(strikePrice); // Parse strike price as float
+      const strikePriceInteger = Math.round(strikePriceFloat * STRIKE_PRICE_MULTIPLIER); // Convert to integer
+      const strikePriceValue = ethers.BigNumber.from(strikePriceInteger.toString()); // Convert to BigNumber
+      
+      // Calculate maturity timestamp from date/time inputs
+      const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000); // Get maturity timestamp
+      
+      // Convert fee percentage to the format expected by the contract (multiply by 10)
+      const feeValue = Math.round(parseFloat(feePercentage) * 10); // Convert fee percentage to integer
+      
+      // Create a factory with signer
       const factory = new ethers.ContractFactory(
         BinaryOptionMarket.abi,
         BinaryOptionMarket.bytecode,
         signer
       );
 
-      // Convert fee to integer (multiply by 10 to handle decimal)
-      const feeValue = Math.round(parseFloat(feePercentage) * 10);
-
-      // Deploy with maturityTimestamp, gas price and fee
-      const contract = await factory.deploy(
-        strikePriceValue,
-        await signer.getAddress(),
-        selectedCoin.label,
-        maturityTimestamp,
-        feeValue,
-        overrides
-      );
-      await contract.deployed();
-
-      // Register with Factory
-      const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, signer);
-      await factoryContract.deploy(contract.address, overrides);
-
-      setContractAddress(contract.address);
-      await fetchContractsByOwner();
-      await fetchBalance();
-
-      toast({
-        title: "Success",
-        description: `Contract deployed at: ${contract.address}`,
-        status: "success",
-        duration: 5000,
-        isClosable: true
+      // IMPORTANT: Use the normalized price feed address from selectedCoin
+      // Get network-appropriate price feed address
+      const normalizedPriceFeedAddress = ethers.utils.getAddress(selectedCoin.priceFeedAddress); // Normalize price feed address
+      
+      // Generate a random indexBg value between 1 and 10
+      const randomIndexBg = Math.floor(Math.random() * 10) + 1; // Generate random index background
+      
+      console.log("Deploying contract with parameters:", {
+        strikePrice: strikePriceValue.toString(), // Log strike price
+        owner: await signer.getAddress(), // Log owner address
+        tradingPair: selectedCoin.label, // Log trading pair
+        priceFeedAddress: normalizedPriceFeedAddress, // Log price feed address
+        maturityTime: maturityTimestamp, // Log maturity timestamp
+        feePercentage: feeValue, // Log fee percentage
+        indexBg: randomIndexBg // Log index background
       });
+      
+      // Adjust gas parameters based on network - with proper typing
+      const overrides: { gasLimit?: any; gasPrice?: any } = {}; // Gas parameters
+      if (network.chainId === 1) {
+        // Mainnet requires more careful gas settings
+        overrides.gasLimit = ethers.utils.hexlify(3000000); // Set gas limit for mainnet
+        // Only set gasPrice if not using EIP-1559
+        if (gasPrice) {
+          overrides.gasPrice = ethers.utils.parseUnits(gasPrice, "gwei"); // Set gas price
+        }
+      } else if (network.chainId === 11155111) {
+        // Sepolia testnet
+        overrides.gasLimit = ethers.utils.hexlify(3000000); // Set gas limit for Sepolia
+      } else {
+        // Local or other networks
+        overrides.gasLimit = ethers.utils.hexlify(6000000); // Set gas limit for local or other networks
+      }
+       
+      // Deploy with ALL required parameters in correct order
+      const contract = await factory.deploy(
+        strikePriceValue,                // int _strikePrice
+        await signer.getAddress(),       // address _owner
+        selectedCoin.label,              // string memory _tradingPair
+        normalizedPriceFeedAddress,      // address _priceFeedAddress
+        maturityTimestamp,               // uint _maturityTime
+        feeValue,                        // uint _feePercentage
+        randomIndexBg,                   // uint _indexBg
+        overrides                        // Gas parameters
+      );
+      
+      console.log("Transaction hash:", contract.deployTransaction.hash); // Log transaction hash
+      
+      // Show toast while waiting for deployment
+      const deployToastId = toast({
+        title: "Deploying Market", // Toast title
+        description: `Transaction submitted: ${contract.deployTransaction.hash.substring(0, 10)}...`, // Toast description
+        status: "info", // Toast status
+        duration: null, // No duration for loading toast
+        isClosable: true, // Allow toast to be closed
+      });
+      
+      // Wait for contract to be deployed
+      await contract.deployed(); // Wait for deployment
+      
+      // Update toast to show success
+      toast.update(deployToastId, {
+        title: "Market Deployed", // Toast title
+        description: `Contract deployed at: ${contract.address}`, // Toast description
+        status: "success", // Toast status
+        duration: 5000, // Toast duration
+      });
+      
+      console.log("Contract deployed to:", contract.address); // Log deployed contract address
+      setContractAddress(contract.address); // Update contract address state
 
-      // Reset form
-      resetForm();
-
+      // Register with Factory contract on current network
+      const factoryContract = new ethers.Contract(FACTORY_ADDRESS, Factory.abi, signer); // Create factory contract instance
+      const registerTx = await factoryContract.deploy(contract.address, overrides); // Register contract with factory
+      
+      // Show toast while waiting for registration
+      const registerToastId = toast({
+        title: "Registering with Factory", // Toast title
+        description: `Transaction submitted: ${registerTx.hash.substring(0, 10)}...`, // Toast description
+        status: "info", // Toast status
+        duration: null, // No duration for loading toast
+        isClosable: true, // Allow toast to be closed
+      });
+      
+      // Wait for transaction to be mined
+      await registerTx.wait(); // Wait for registration transaction
+      
+      // Update toast
+      toast.update(registerToastId, {
+        title: "Registration Complete", // Toast title
+        description: "Market registered with Factory", // Toast description
+        status: "success", // Toast status
+        duration: 5000, // Toast duration
+      });
+      
+      // Update deployed contracts list
+      setDeployedContracts([...deployedContracts, contract.address]); // Update deployed contracts state
+      
+      // Reset form after successful deployment
+      resetForm(); // Reset form fields
+      
+      // Refresh wallet balance after deployment
+      refreshBalance(); // Refresh wallet balance
+      router.push('/listaddress/1');
+      
     } catch (error) {
-      console.error("Deploy error:", error);
+      console.error("Error deploying contract:", error); // Log error if deployment fails
       toast({
-        title: "Error",
-        description: error.message,
-        status: "error",
-        duration: 5000,
-        isClosable: true
+        title: "Deployment Failed", // Toast title
+        description: error.message || "Failed to deploy market contract", // Toast description
+        status: "error", // Toast status
+        duration: 5000, // Toast duration
+        isClosable: true, // Allow toast to be closed
       });
     }
   };
@@ -464,38 +550,38 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   const fetchContractBalance = async () => {
     try {
       console.log("Fetching contract balance..."); // Log before fetching balance
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const contractBalanceWei = await provider.getBalance(contractAddress); // Get contract balance
+      const provider = new ethers.providers.Web3Provider(window.ethereum); // Create provider
+      const contractBalanceWei = await provider.getBalance(contractAddress); // Get contract balance in Wei
       const contractBalanceEth = parseFloat(ethers.utils.formatEther(contractBalanceWei)); // Convert from Wei to ETH
-      setContractBalance(contractBalanceEth.toFixed(4)); // Update balance
-      console.log("Contract Balance:", contractBalanceEth);
+      setContractBalance(contractBalanceEth.toFixed(4)); // Update contract balance state
+      console.log("Contract Balance:", contractBalanceEth); // Log contract balance
     } catch (error: any) {
-      console.error("Failed to fetch contract balance:", error); // Print error if there's an issue
+      console.error("Failed to fetch contract balance:", error); // Log error if fetching fails
       toast({
-        title: "Error fetching contract balance",
-        description: error.message || "An unexpected error occurred.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
+        title: "Error fetching contract balance", // Toast title
+        description: error.message || "An unexpected error occurred.", // Toast description
+        status: "error", // Toast status
+        duration: 5000, // Toast duration
+        isClosable: true, // Allow toast to be closed
       });
     }
   };
 
   // Listen for new contract deployment events to update contracts list
   useEffect(() => {
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
-    const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, provider);
+    const provider = new ethers.providers.Web3Provider(window.ethereum); // Create provider
+    const factoryContract = new ethers.Contract(FactoryAddress, Factory.abi, provider); // Create factory contract instance
 
     // Listen for Deployed event to update contracts when a new contract is created
     factoryContract.on("Deployed", (owner, contractAddress, index) => {
-      console.log("New contract stored:", contractAddress);
+      console.log("New contract stored:", contractAddress); // Log new contract address
       fetchContractsByOwner(); // Update contracts list after receiving event
     });
 
     return () => {
       // Unsubscribe from event when component unmounts
       factoryContract.off("Deployed", (owner, contractAddress, index) => {
-        console.log("New contract stored:", contractAddress);
+        console.log("New contract stored:", contractAddress); // Log new contract address
         fetchContractsByOwner(); // Update contracts list after receiving event
       });
     };
@@ -506,34 +592,34 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     try {
       // Check if wallet is connected
       if (!walletAddress) {
-        console.log("No wallet address available");
-        return;
+        console.log("No wallet address available"); // Log if no wallet address
+        return; // Exit if no wallet address
       }
 
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const contract = new ethers.Contract(FactoryAddress, Factory.abi, provider);
+      const provider = new ethers.providers.Web3Provider(window.ethereum); // Create provider
+      const contract = new ethers.Contract(FactoryAddress, Factory.abi, provider); // Create factory contract instance
 
       // Debug logs
-      console.log("Fetching contracts for address:", walletAddress);
-      console.log("Using Factory at:", FactoryAddress);
+      console.log("Fetching contracts for address:", walletAddress); // Log wallet address
+      console.log("Using Factory at:", FactoryAddress); // Log factory address
 
       // Add valid address check
       if (!ethers.utils.isAddress(walletAddress)) {
-        throw new Error("Invalid wallet address");
+        throw new Error("Invalid wallet address"); // Throw error if wallet address is invalid
       }
 
-      const contracts = await contract.getContractsByOwner(walletAddress);
-      console.log("Contracts fetched:", contracts);
-      setDeployedContracts(contracts);
+      const contracts = await contract.getContractsByOwner(walletAddress); // Fetch contracts by owner
+      console.log("Contracts fetched:", contracts); // Log fetched contracts
+      setDeployedContracts(contracts); // Update deployed contracts state
 
     } catch (error: any) {
-      console.error("Failed to fetch contracts:", error);
+      console.error("Failed to fetch contracts:", error); // Log error if fetching fails
       toast({
-        title: "Error fetching contracts",
-        description: "Please make sure your wallet is connected",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
+        title: "Error fetching contracts", // Toast title
+        description: "Please make sure your wallet is connected", // Toast description
+        status: "error", // Toast status
+        duration: 5000, // Toast duration
+        isClosable: true, // Allow toast to be closed
       });
     }
   };
@@ -541,14 +627,14 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   // Fetch contract balance when contract address changes
   useEffect(() => {
     if (contractAddress) {
-      fetchContractBalance();
+      fetchContractBalance(); // Fetch contract balance
     }
   }, [contractAddress]);
 
   // Fetch contracts when wallet address changes
   useEffect(() => {
     if (walletAddress) {
-      fetchContractsByOwner();
+      fetchContractsByOwner(); // Fetch contracts by owner
     }
   }, [walletAddress]);
 
@@ -568,9 +654,11 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
         // Update available coins with current prices
         setAvailableCoins([
-          { value: "BTCUSD", label: "BTC/USD", currentPrice: 1 / parseFloat(rates.BTC) },
-          { value: "ETHUSD", label: "ETH/USD", currentPrice: 1 / parseFloat(rates.ETH) },
-          { value: "ICPUSD", label: "ICP/USD", currentPrice: 1 / parseFloat(rates.ICP) || 12.87 }
+          { value: "BTCUSD", label: "BTC/USD", currentPrice: 1 / parseFloat(rates.BTC), priceFeedAddress: "0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43" },
+          { value: "ETHUSD", label: "ETH/USD", currentPrice: 1 / parseFloat(rates.ETH), priceFeedAddress: "0x694AA1769357215DE4FAC081bf1f309aDC325306" },
+          { value: "LINKUSD", label: "LINK/USD", currentPrice: 1 / parseFloat(rates.LINK), priceFeedAddress: "0xc59E3633BAAC79493d908e63626716e204A45EdF" },
+          { value: "SNXUSD", label: "SNX/USD", currentPrice: 1 / parseFloat(rates.SNX), priceFeedAddress: "0xc0F82A46033b8BdBA4Bb0B0e28Bc2006F64355bC" },
+          { value: "WSTETHUSD", label: "WSTETH/USD", currentPrice: 1 / parseFloat(rates.WSTETH), priceFeedAddress: "0xaaabb530434B0EeAAc9A42E25dbC6A22D7bE218E" }
         ]);
       } catch (error) {
         console.error("Error fetching prices from Coinbase:", error);
@@ -622,9 +710,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       const fetchCurrentPrice = async () => {
         try {
           // Convert from BTCUSD to BTC-USD if needed
-          const formattedSymbol = selectedCoin.value.includes('-')
-            ? selectedCoin.value
-            : `${selectedCoin.value.substring(0, 3)}-${selectedCoin.value.substring(3)}`;
+          const symbol = selectedCoin.value;
+const formattedSymbol = symbol.includes('-')
+  ? symbol
+  : `${symbol.slice(0, symbol.length - 3)}-${symbol.slice(-3)}`;
 
           const priceData = await priceService.fetchPrice(formattedSymbol);
           setCurrentPrice(priceData.price);
@@ -650,22 +739,6 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       return () => clearInterval(intervalId);
     }
   }, [selectedCoin, strikePrice]);
-
-  // Create Unix timestamp from date and time inputs
-  const createMaturityTimestamp = () => {
-    if (!maturityDate || !maturityTime) return 0;
-
-    try {
-      const [hours, minutes] = maturityTime.split(':').map(Number);
-      const dateObj = new Date(`${maturityDate}T00:00:00`);
-      dateObj.setHours(hours, minutes, 0, 0);
-
-      return Math.floor(dateObj.getTime() / 1000);
-    } catch (error) {
-      console.error('Error creating maturity timestamp:', error);
-      return 0;
-    }
-  };
 
   // Component UI render
   return (
@@ -1119,6 +1192,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                 }}
                 transition="all 0.2s"
                 isDisabled={!selectedCoin || !strikePrice || !maturityDate || !maturityTime}
+
               >
                 Create market
               </Button>

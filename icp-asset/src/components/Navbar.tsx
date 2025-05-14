@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Flex, Link, Spacer, Text, useColorModeValue } from '@chakra-ui/react';
+import { Box, Flex, Link, Spacer, Text, useColorModeValue, Image, HStack, Button } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
 
 const Navbar = () => {
@@ -16,38 +16,52 @@ const Navbar = () => {
     }, [router.asPath]);
 
     return (
-        <Box bg="black" px={4} py={3} width="100%">
+        <Box bg="#0f172a" px={4} py={3} width="100%" borderBottom="1px solid" borderColor="#1e293b" boxShadow="0 2px 10px rgba(0, 0, 0, 0.3)">
             <Flex alignItems="center" maxW="1200px" mx="auto">
-                <Text fontSize="xl" fontWeight="bold" color="#FEDF56">Oreka Binary Options</Text>
+                <Flex alignItems="center">
+                    <Image src="/images/oreka-logo.png" alt="Oreka Logo" height="35px" mr={2} fallback={
+                        <Text fontSize="xl" fontWeight="bold" color="white" bgGradient="linear(to-r, #3182CE, #63B3ED)" bgClip="text">OREKA</Text>
+                    } />
+                    <Text fontSize="xl" fontWeight="bold" color="white" bgGradient="linear(to-r, #3182CE, #63B3ED)" bgClip="text">
+                        Binary Options
+                    </Text>
+                </Flex>
 
                 <Spacer />
 
-                <Flex>
-                    <Link
-                        px={4}
-                        py={2}
-                        mr={3}
+                <HStack spacing={4}>
+                    <Button
+                        variant="ghost"
+                        color="white"
                         fontWeight="medium"
-                        color="#FEDF56"
-                        _hover={{ textDecoration: 'none', color: "#FEDF56" }}
+                        _hover={{
+                            bgGradient: "linear(to-r, #3182CE, #63B3ED)",
+                            color: "white"
+                        }}
                         onClick={() => router.push('/')}
+                        size="md"
+                        borderRadius="md"
                     >
-                        Market
-                    </Link>
+                        Markets
+                    </Button>
 
                     {marketId && (
-                        <Link
-                            px={4}
-                            py={2}
+                        <Button
+                            variant="ghost"
+                            color="gray.300"
                             fontWeight="medium"
-                            color="gray.400"
-                            _hover={{ textDecoration: 'none', color: "#FEDF56" }}
+                            _hover={{
+                                bgGradient: "linear(to-r, #3182CE, #63B3ED)",
+                                color: "white"
+                            }}
                             onClick={() => router.push(`/admin?marketId=${marketId}`)}
+                            size="md"
+                            borderRadius="md"
                         >
                             Admin
-                        </Link>
+                        </Button>
                     )}
-                </Flex>
+                </HStack>
             </Flex>
         </Box>
     );

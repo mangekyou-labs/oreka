@@ -61,7 +61,9 @@ export class IcpLedgerService extends BaseLedgerService implements IIcpLedgerSer
 
     public async initialize(): Promise<void> {
         if (!this.actor) {
+            console.log("Initializing ICP ledger service...");
             this.actor = icpLedgerCanister;
+            console.log("ICP ledger service initialized with actor:", this.actor);
         }
     }
 
@@ -104,15 +106,63 @@ export class IcpLedgerService extends BaseLedgerService implements IIcpLedgerSer
 
     public async approve(args: ApproveArgs) {
         this.assertInitialized();
-        return await this.actor.icrc2_approve({
-            spender: args.spender,
-            amount: args.amount,
-            fee: args.fee ? [args.fee] : [],
-            memo: args.memo ? [args.memo] : [],
-            from_subaccount: args.from_subaccount ? [args.from_subaccount] : [],
-            created_at_time: args.created_at_time ? [args.created_at_time] : [],
-            expected_allowance: args.expected_allowance ? [args.expected_allowance] : [],
-            expires_at: args.expires_at ? [args.expires_at] : [],
-        });
+        console.log("DEBUG: Approving spend for market. Spender:", JSON.stringify({
+            owner: args.spender.owner.toString(),
+            subaccount: args.spender.subaccount ? "present" : "not present"
+        }));
+        console.log("DEBUG: Amount:", args.amount.toString());
+        console.log("DEBUG: Using actor:", this.actor ? "Actor exists" : "Actor is null");
+
+        try {
+            const result = await this.actor.icrc2_approve({
+                spender: args.spender,
+                amount: args.amount,
+                fee: args.fee ? [args.fee] : [],
+                memo: args.memo ? [args.memo] : [],
+                from_subaccount: args.from_subaccount ? [args.from_subaccount] : [],
+                created_at_time: args.created_at_time ? [args.created_at_time] : [],
+                expected_allowance: args.expected_allowance ? [args.expected_allowance] : [],
+                expires_at: args.expires_at ? [args.expires_at] : [],
+            });
+            // Handle result logging safely for BigInt values
+            console.log("DEBUG: Approval result:", typeof result === 'object' ?
+                JSON.stringify(result, (_, value) =>
+                    typeof value === 'bigint' ? value.toString() : value
+                ) : result);
+            return result;
+        } catch (error) {
+            console.error("DEBUG: Error in approve method:", error);
+            throw error;
+        }
+    }
+
+    // Add a debug method to test ICP ledger connection
+    public async debug_testConnection() {
+        try {
+            console.log("DEBUG: Testing ICP ledger service connection");
+            this.assertInitialized();
+
+            // Try to get name as simple test
+            console.log("DEBUG: Getting token name...");
+            const name = await this.actor.icrc1_name();
+            console.log("DEBUG: Token name:", name);
+
+            // Try to get symbol
+            console.log("DEBUG: Getting token symbol...");
+            const symbol = await this.actor.icrc1_symbol();
+            console.log("DEBUG: Token symbol:", symbol);
+
+            return {
+                success: true,
+                name,
+                symbol
+            };
+        } catch (error) {
+            console.error("DEBUG: ICP ledger connection test failed:", error);
+            return {
+                success: false,
+                error: String(error)
+            };
+        }
     }
 } 

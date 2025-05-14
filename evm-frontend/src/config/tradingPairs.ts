@@ -59,4 +59,25 @@ export const getChartSymbol = (contractAddress: string): string => {
     const symbol = defaultPairs[contractAddress]?.symbol;
     console.log('Getting chart symbol for:', contractAddress, 'Symbol:', symbol); // Debug
     return symbol || 'BTCUSDT';
+};
+
+import { ethers } from 'ethers';
+
+// Mapeo de direcciones de Price Feed (lowercase) a pares de trading
+export const CHAINLINK_PRICE_FEEDS_MAP: { [key: string]: string } = {
+  "0x1b44f3514812d835eb1bdb0acb33d3fa3351ee43": "BTC/USD",
+  "0x694aa176935721d5e4fac081bf1f309adc325306": "ETH/USD",
+  "0xc59e3633baac79493d98e63626716e204a45edf": "LINK/USD", 
+  "0xc0f82a46033b8bdba4bb0b0e28bc2006f64355bc": "SNX/USD",
+  "0xaaabb530434b0eeaac9a42e25dbc6a22d7be218e": "WSTETH/USD",
+
+};
+
+// Helper para obtener el par de trading desde la dirección del feed
+export const getTradingPairFromPriceFeed = (priceFeedAddress: string): string => {
+  if (!priceFeedAddress || typeof priceFeedAddress !== 'string') {
+    return "Unknown";
+  }
+  const normalizedAddress = priceFeedAddress.toLowerCase();
+  return CHAINLINK_PRICE_FEEDS_MAP[normalizedAddress] || "Unknown";
 }; 
