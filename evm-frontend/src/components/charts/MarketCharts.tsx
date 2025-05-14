@@ -78,7 +78,9 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
   options = { showPrice: true, showPositions: true },
   chartSymbol,
   biddingStartTime,
-  maturityTime
+  maturityTime,
+  enhancedPositionData, 
+  setEnhancedPositionData 
 }) => {
   const [currentTime, setCurrentTime] = useState<number>(Math.floor(Date.now() / 1000));
   const [isLoadingChart, setIsLoadingChart] = useState<boolean>(true);
@@ -86,7 +88,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
   const initialLoadRef = useRef<boolean>(true);
   const priceServiceRef = useRef(PriceService.getInstance());
   const [hoverData, setHoverData] = useState<any>(null);
-  const [enhancedPositionData, setEnhancedPositionData] = useState<PositionPoint[]>([]);
+  //const [enhancedPositionData, setEnhancedPositionData] = useState<PositionPoint[]>([]);
   const positionHistoryRef = useRef<PositionPoint[]>([]);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -494,10 +496,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
               margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-              /**
-               * X-axis configuration
-               * Displays timestamps and formats them for better readability
-               */
+            
               <XAxis
                 dataKey="timestamp"
                 tickFormatter={formatPositionXAxisTick}
@@ -508,10 +507,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 axisLine={{ stroke: '#333' }}
               />
 
-              /**
-               * Y-axis configuration
-               * Displays position percentages and formats them for better readability
-               */
+              
               <YAxis
                 domain={[0, 100]}
                 tickCount={5}
@@ -520,16 +516,10 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 axisLine={{ stroke: '#333' }}
               />
 
-              /**
-               * Tooltip configuration
-               * Displays detailed information about the hovered data point
-               */
+              
               <Tooltip content={<PositionChartTooltip />} />
 
-              /**
-               * Long position line
-               * Displays the long position percentage over time
-               */
+              
               <Line
                 type="monotone"
                 dataKey="longPercentage"
@@ -541,10 +531,7 @@ const MarketCharts: React.FC<MarketChartsProps> = ({
                 name="LONG"
               />
 
-              /**
-               * Short position line
-               * Displays the short position percentage over time
-               */
+             
               <Line
                 type="monotone"
                 dataKey="shortPercentage"

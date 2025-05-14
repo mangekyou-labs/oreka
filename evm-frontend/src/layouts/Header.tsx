@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Flex, Text, HStack } from "@chakra-ui/react";
+import { Flex, Text, HStack, Icon } from "@chakra-ui/react";
 import { MdOutlineAccountBalanceWallet } from "react-icons/md";
 import { ethers } from "ethers";
 
@@ -44,7 +44,7 @@ function Header({ walletAddress }: { walletAddress: string }) {
             boxShadow="lg"
             pl={3}
           >
-            <MdOutlineAccountBalanceWallet size={24} color="#FEDF56" />
+            <Icon as={MdOutlineAccountBalanceWallet as React.ElementType} boxSize={6} color="#FEDF56" />
             <Text ml={2} fontSize="md" color="#FEDF56">
               {balance} ETH
             </Text>
@@ -58,7 +58,7 @@ function Header({ walletAddress }: { walletAddress: string }) {
             boxShadow="lg"
             pl={3}
           >
-            <MdOutlineAccountBalanceWallet size={24} color="#FEDF56" />
+            <Icon as={MdOutlineAccountBalanceWallet as React.ElementType} boxSize={6} color="#FEDF56" />
             <Text ml={2} fontSize="md" color="#FEDF56">
               {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
             </Text>

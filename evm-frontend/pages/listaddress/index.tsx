@@ -6,7 +6,7 @@ const ListAddressIndex = () => {
 
   useEffect(() => {
     router.replace('/listaddress/1');
-  }, []);
+  }, [router]);
 
   return null;
 };

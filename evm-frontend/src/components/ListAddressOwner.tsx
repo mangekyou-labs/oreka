@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ethers } from 'ethers';
 import { Box, Button, HStack, Icon, Text, VStack, SimpleGrid, Flex, Input, Select, Divider, Progress, InputGroup, InputRightAddon, Spinner, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip, Spacer, Image, InputRightElement } from '@chakra-ui/react';
 
@@ -31,7 +31,7 @@ interface ListAddressOwnerProps {
 
 interface ContractData {
   address: string;
-  createDate: string;
+  deployTime: number;
   longAmount: string;
   shortAmount: string;
   strikePrice: string;
@@ -124,6 +124,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
   const [marketResults, setMarketResults] = useState<{ [key: string]: string }>({});
   // Tab selection for filtering markets
   const [currentTab, setCurrentTab] = useState<string>('All Markets');
+  const { currentTab: currentTabQuery } = router.query;
 
   // Trading pair filter
   const [currentTradingPairFilter, setCurrentTradingPairFilter] = useState<string | null>(null);
@@ -138,85 +139,68 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
    * Filters contracts based on the currently selected tab
    * Different tabs show different subsets of markets (All, Recent, Active, Expired, By Asset)
    */
-  const filteredContracts = currentContracts
-    .filter(contract => {
-      const contractTimestamp = contract.createDate
-        ? new Date(contract.createDate).getTime()
-        : Number(contract.maturityTime) * 1000;
 
-      const now = Date.now();
+  useEffect(() => {
+    if (typeof currentTabQuery === 'string') {
+      setCurrentTab(currentTabQuery);
+    }
+  }, [currentTabQuery]);
 
+  const indexOfLastContract = page * contractsPerPage;
+  const indexOfFirstContract = indexOfLastContract - contractsPerPage;
+
+  const filteredContracts = useMemo(() => {
+    const filtered = deployedContracts.filter(contract => {
       switch (currentTab) {
         case 'All Markets':
           return true;
-
-        case 'Most recent':
-          return (
-            contractTimestamp >= oneWeekAgo
-          );
-
         case 'Quests':
-          return Number(contract.phase) === Phase.Trading || Number(contract.phase) === Phase.Bidding;
-
+          return (
+            (Number(contract.phase) === Phase.Trading || Number(contract.phase) === Phase.Bidding) &&
+            Date.now() < Number(contract.maturityTime) * 1000
+          );
         case 'Results':
           return Number(contract.phase) === Phase.Maturity || Number(contract.phase) === Phase.Expiry;
-
         case 'Pair':
-          return currentTradingPairFilter ? contract.tradingPair === currentTradingPairFilter : true;
+          return currentTradingPairFilter
+            ? contract.tradingPair === currentTradingPairFilter
+            : true;
         case 'My Markets':
           return contract.owner.toLowerCase() === walletAddress?.toLowerCase();
-
         case 'My Holdings':
           return userHoldingsContracts.includes(contract.address.toLowerCase());
         default:
           return true;
       }
-    })
-    .sort((a, b) => {
-      if (currentTab === 'All Markets') {
-        const now = Date.now();
-        const aMaturity = Number(a.maturityTime) * 1000;
-        const bMaturity = Number(b.maturityTime) * 1000;
-
-        const aHasExpired = now > aMaturity;
-        const bHasExpired = now > bMaturity;
-
-        // If both are not expired, sort by maturity time
-        if (!aHasExpired && !bHasExpired) {
-          return aMaturity - bMaturity;
-        }
-
-        // If only a has expired, prioritize b
-        if (aHasExpired && !bHasExpired) return 1;
-        if (!aHasExpired && bHasExpired) return -1;
-
-        // If both have expired, keep the order
-        return 0;
-      }
-
-      return 0;
     });
 
-  /**
-     * Sorts contracts by creation date when "Most recent" tab is selected
-     * Newest contracts appear at the top of the list
-     */
-  useEffect(() => {
-    if (currentTab === 'Most recent') {
-      // Create a copy of the array to avoid modifying the original state directly
-      const sortedContracts = [...deployedContracts].sort((a, b) => {
-        // Sort by creation date in descending order (newest first)
-        return new Date(b.createDate).getTime() - new Date(a.createDate).getTime();
-      });
-      setCurrentContracts(sortedContracts);
-    }
-  }, [currentTab]);
+    const sorted = [...filtered].sort((a, b) => {
+      const aTimestamp = a.deployTime ? new Date(a.deployTime * 1000).getTime() : 0;
+      const bTimestamp = b.deployTime ? new Date(b.deployTime * 1000).getTime() : 0;
+      return bTimestamp - aTimestamp;
+    });
+
+
+    return sorted;
+  }, [
+    deployedContracts,
+    currentTab,
+    currentTradingPairFilter,
+    walletAddress,
+    userHoldingsContracts,
+  ]);
+
+
+  const paginatedContracts = useMemo(() => {
+    return filteredContracts.slice(indexOfFirstContract, indexOfLastContract);
+  }, [filteredContracts, indexOfFirstContract, indexOfLastContract]);
+
 
   const fetchMarketResults = async () => {
     const provider = new ethers.providers.Web3Provider(window.ethereum);
     const results: { [key: string]: string } = {};
 
-    for (const contract of filteredContracts) {
+    for (const contract of paginatedContracts) {
       try {
         const instance = new ethers.Contract(contract.address, BinaryOptionMarket.abi, provider);
         const oracle = await instance.oracleDetails();
@@ -232,10 +216,10 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
   };
 
   useEffect(() => {
-    if (filteredContracts.length > 0) {
+    if (paginatedContracts.length > 0) {
       fetchMarketResults();
     }
-  }, [filteredContracts]);
+  }, [paginatedContracts]);
   /**
      * Fetch user holdings contracts
      */
@@ -388,13 +372,17 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       // Fetch detailed data for each contract address
       const contractsData = await Promise.all(allContracts.map(async (address: string) => {
         const contract = new ethers.Contract(address, BinaryOptionMarket.abi, provider);
-
+        let deployTimeValue = 0;
         try {
+
+          const deployTimeBN = await contract.deployTime();
+          deployTimeValue = deployTimeBN.toNumber();
           // Get basic data from contract
           const [
             positions,
             oracleDetails,
             phase,
+            deployTime,
             maturityTimeBN,
             tradingPair,
             owner
@@ -402,6 +390,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
             contract.positions(),
             contract.oracleDetails(),
             contract.currentPhase(),
+            contract.deployed(),
             contract.maturityTime(),
             contract.tradingPair().catch(() => 'Unknown'),
             contract.owner()
@@ -440,6 +429,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
             maturityTimeValue = Math.floor(Date.now() / 1000) + 86400; // Current time + 1 day
           }
 
+
           // Diagnostic logging for maturity time validation
           const maturityDate = new Date(maturityTimeValue * 1000);
           console.log("Maturity date:", maturityDate.toISOString());
@@ -448,7 +438,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
 
           return {
             address,
-            createDate: new Date().toISOString(),
+            deployTime: deployTimeValue,
             longAmount: ethers.utils.formatEther(positions.long),
             shortAmount: ethers.utils.formatEther(positions.short),
             strikePrice: strikePriceBN.toString(),
@@ -463,7 +453,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
           console.error(`Error fetching data for contract ${address}:`, error);
           return {
             address,
-            createDate: new Date().toISOString(),
+            deployTime: deployTimeValue,
             longAmount: '0',
             shortAmount: '0',
             strikePrice: '0',
@@ -577,8 +567,6 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       localStorage.removeItem('contractData');
       localStorage.removeItem('selectedContractAddress');
 
-
-
       // Convert necessary values to appropriate formats
       const longAmount = parseFloat(contractData.longAmount || '0');
       const shortAmount = parseFloat(contractData.shortAmount || '0');
@@ -590,6 +578,10 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
         minimumFractionDigits: 2,
         maximumFractionDigits: 4
       });
+
+      // Store finalPrice in localStorage
+      localStorage.setItem('finalPrice', formattedFinalPrice);
+
       // Determine if user address is the owner of this contract
       const isOwner = owner.toLowerCase() === walletAddress?.toLowerCase();
 
@@ -605,9 +597,6 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       // Parse numeric value for direct use in chart
       const strikePriceNumber = parseInt(contractData.strikePrice) / 100000000;
 
-
-
-
       // Calculate bidding start time (for position chart)
       // Use 24 hours before maturity as default if not available
       const biddingStartTime = maturityTime - (24 * 60 * 60);
@@ -615,6 +604,11 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       // Calculate resolve time for maturity phase
       // In most cases, this will be updated from blockchain on load if needed
       const resolveTime = 0; // Default value, will be updated from blockchain
+
+      const strikePriceFormatted = (parseInt(contractData.strikePrice) / 1e8).toFixed(2);
+      const finalPriceFormatted = (Number(contractData.phase) >= Phase.Maturity && contractData.finalPrice)
+        ? (parseInt(contractData.finalPrice) / 1e8).toFixed(2)
+        : 'N/A';
 
       // Create initial position history data point for chart
       const initialPositionHistory = [
@@ -680,6 +674,8 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
         completeData: true, // Flag to indicate this data is complete for Customer.tsx
         isPreloaded: true,
 
+
+
         // Phase and time information
         phase: phaseNumber,
         currentPhase: phaseNumber, // Additional field for direct use
@@ -690,18 +686,16 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
         resolveTime: resolveTime,
         deployTime: Math.floor(Date.now() / 1000) - 86400, // Default value, will be updated
 
-
         // Price-related information
         strikePrice: formattedStrikePrice, // Raw value
         strikePriceNumber: formattedStrikePrice, // Numeric value
         finalPrice: finalPriceNumber, // raw value (numeric)
-        formattedFinalPrice: formattedFinalPrice, // for UI display
-        formattedStrikePrice: formattedStrikePrice, // For UI display
+        formattedFinalPrice: finalPriceFormatted, // for UI display
+        formattedStrikePrice: strikePriceFormatted, // For UI display
         displayStrikePrice: formattedStrikePrice, // For UI display
         currentPrice: currentPrice,
         priceDifference: priceDifference,
         percentageDifference: percentageDifference,
-
 
         // Trading pair information
         tradingPair: contractData.tradingPair,
@@ -750,22 +744,16 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       localStorage.setItem('contractData', JSON.stringify(enhancedContractData));
       localStorage.setItem('selectedContractAddress', contractAddress);
 
-      // Navigate to customer view
-      router.push({
-        pathname: `/customer/${contractAddress}`,
-        query: { data: JSON.stringify(contractData) }  // `contract` là object từ `ContractData`
-      });
+      // Navigate to customer view with clean URL
+      router.push(`/customer/${contractAddress}`);
+
     } catch (error) {
       console.error("Error preparing contract data:", error);
       // Fallback to original behavior if error occurs
       localStorage.removeItem('contractData'); // Clear to be safe
       localStorage.setItem('selectedContractAddress', contractAddress);
-      router.push({
-        pathname: `/customer/${contractAddress}`,
-        query: {
-          data: JSON.stringify(contractData),
-        },
-      });
+      // Even in error case, use clean URL
+      router.push(`/customer/${contractAddress}`);
     }
   };
   /**
@@ -1190,12 +1178,19 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 _focus={{ borderColor: 'blue.400', boxShadow: '0 0 0 2px rgba(66, 153, 225, 0.6)' }}
                 _hover={{ borderColor: 'blue.300' }}
               />
-              <InputRightElement pointerEvents="none" height="90%" pr={4} mr="5px" mt="1px" mb="1px"
-                children={<Icon as={FaSearch} color="gray.400" />}
+              <InputRightElement
+                pointerEvents="none"
+                height="90%"
+                pr={4}
+                mr="5px"
+                mt="1px"
+                mb="1px"
                 bg="#1A1C21"
                 borderColor="gray.600"
                 borderRadius="3xl"
-              />
+              >
+                <Icon as={FaSearch as React.ElementType} color="gray.400" />
+              </InputRightElement>
             </InputGroup>
 
             {/* Search results */}
@@ -1277,7 +1272,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
               boxShadow="0 4px 10px rgba(0, 0, 0, 0.3)"
             >
               <Button
-                leftIcon={<GrDeploy />}
+                leftIcon={GrDeploy as unknown as JSX.Element}
                 variant="solid"
                 color="white"
                 bg="#1A1C21"
@@ -1317,7 +1312,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 </Text>
               </HStack>
 
-              {/* Inject CSS animation */}
+              {/* Inject CSS animation
               <style jsx>{`
                   @keyframes gradient-border {
                     0% { background-position: 0% 50%; }
@@ -1325,7 +1320,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                     100% { background-position: 0% 50%; }
                   }
                 `}
-              </style>
+              </style> */}
             </Box>
 
             <Box
@@ -1356,7 +1351,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 {shortenAddress(walletAddress)}
               </Button>
 
-              {/* Inject animation for the border */}
+              {/* Inject animation for the border
               <style jsx>{`
                   @keyframes gradient-border {
                     0% { background-position: 0% 50%; }
@@ -1364,12 +1359,12 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                     100% { background-position: 0% 50%; }
                   }
                 `}
-              </style>
+              </style> */}
             </Box>
           </HStack>
         ) : (
           <Button
-            leftIcon={<FaWallet />}
+            leftIcon={FaWallet as unknown as JSX.Element}
             colorScheme="white"
             size="md"
             onClick={connectWallet}
@@ -1399,7 +1394,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
             }}
           >
             <HStack spacing={4}>
-              {['All Markets', 'Most recent', 'Quests', 'Results', 'My Markets', 'My Holdings'].map((tab) => (
+              {['All Markets', 'Quests', 'Results', 'My Markets', 'My Holdings'].map((tab) => (
                 <Button
                   key={tab}
                   size="md"
@@ -1483,7 +1478,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
             spacing={4}
             width="100%"
           >
-            {filteredContracts.map(({ address, createDate, longAmount, shortAmount, strikePrice, finalPrice, phase, maturityTime, tradingPair, owner }, index) => (
+            {paginatedContracts.map(({ address, deployTime, longAmount, shortAmount, strikePrice, finalPrice, phase, maturityTime, tradingPair, owner }, index) => (
 
               <Box
                 key={index}
@@ -1502,7 +1497,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                   onClick={() =>
                     handleAddressClick(address, owner, {
                       address,
-                      createDate,
+                      deployTime,
                       longAmount,
                       shortAmount,
                       strikePrice,
@@ -1538,7 +1533,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                     />
                     <Box
                       display="inline-block"
-                      bg={getPhaseColor(Number(phase))} 
+                      bg={getPhaseColor(Number(phase))}
                       color="white"
                       px={3}
                       py={1}
@@ -1573,13 +1568,13 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                       style={{
                         WebkitLineClamp: 2,
                         WebkitBoxOrient: 'vertical',
-                        height: '3em', 
+                        height: '3em',
                       }}
                     >
                       {marketTitles[address] || "Loading..."}
                     </Box>
 
-                    
+
 
 
                     <HStack direction="column" w="100%" mb={4} width="100%">
@@ -1620,7 +1615,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                             <Text
                               fontSize="md"
                               fontWeight="bold"
-                              color="#A9A9A9" // Màu chữ xám cho thông báo hết hạn
+                              color="#A9A9A9"
                             >
                               Expired
                             </Text>
@@ -1680,7 +1675,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                     {/* Price and time remaining */}
                     <Flex justify="space-between" align="center">
                       <HStack spacing={2}>
-                        <Icon as={getIconBySymbol(tradingPair)} color="blue.300" boxSize={6} />
+                        <Icon as={getIconBySymbol(tradingPair) as React.ElementType} color="blue.300" boxSize={6} />
                         <Text fontWeight="bold" fontSize="lg" color="white">
                           {assetPrices[tradingPair]
                             ? `$${assetPrices[tradingPair].toLocaleString(undefined, {
@@ -1690,7 +1685,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                         </Text>
                       </HStack>
                       <HStack>
-                        <Icon as={FaRegClock} color="gray.400" />
+                        <Icon as={FaRegClock as React.ElementType} color="gray.400" />
                         <Text fontSize="sm" color="gray.400" textAlign="right">
                           {renderTimeRemaining(address)}
                         </Text>
@@ -1705,7 +1700,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
           <Text color="gray.600">No contracts found for this owner.</Text>
         )}
       </Box>
-      {filteredContracts.length > 0 && (
+      {paginatedContracts.length > 0 && (
         <Flex
           justify="center"
           mt={8}
@@ -1725,7 +1720,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
             <Text color="white" fontWeight="bold">Page {page}</Text>
             <Button
               onClick={() => router.push(`?page=${page + 1}`)}
-              isDisabled={filteredContracts.length < contractsPerPage}
+              isDisabled={paginatedContracts.length < contractsPerPage}
               variant="outline"
               colorScheme="gray"
             >

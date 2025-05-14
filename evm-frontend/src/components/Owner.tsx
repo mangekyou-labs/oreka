@@ -26,11 +26,11 @@ interface Coin {
   priceFeedAddress: string; // The address of the price feed for the coin
 }
 
-// Constant for converting real numbers to a specific format
-const STRIKE_PRICE_MULTIPLIER = 100000000; // 10^8 - allows up to 8 decimal places
+  // Constant for converting real numbers to a specific format
+  const STRIKE_PRICE_MULTIPLIER = 100000000; // 10^8 - allows up to 8 decimal places
 
-// Owner component: Allows users to create and manage binary option markets
-const Owner: React.FC<OwnerProps> = ({ address }) => {
+  // Owner component: Allows users to create and manage binary option markets
+  const Owner: React.FC<OwnerProps> = ({ address }) => {
   // Authentication context for wallet connection and balance
   const { isConnected, walletAddress, balance, connectWallet, refreshBalance } = useAuth();
 
@@ -556,11 +556,11 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
     try {
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const factory = new ethers.Contract(FACTORY_ADDRESS, Factory.abi, provider);
-  
+
       const filter = factory.filters.Deployed();
       const events = await factory.queryFilter(filter);
       const contractAddresses = events.map(e => e.args?.contractAddress).filter(Boolean);
-  
+
       const contractsData = await Promise.all(
         contractAddresses.map(async (address: string) => {
           const contract = new ethers.Contract(address, BinaryOptionMarket.abi, provider);
@@ -573,13 +573,13 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
               contract.tradingPair().catch(() => 'Unknown'),
               contract.owner()
             ]);
-  
+
             let indexBg = 1;
             try {
               const bg = await contract.indexBg();
               indexBg = bg.toNumber();
-            } catch {}
-  
+            } catch { }
+
             return {
               address,
               createDate: new Date().toISOString(),
@@ -597,10 +597,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
           }
         })
       );
-  
+
       const validContracts = contractsData.filter(Boolean);
       sessionStorage.setItem('cachedDeployedContracts', JSON.stringify(validContracts));
-  
+
       router.push('/listaddress/1');
     } catch (err) {
       console.error("Error fetching contracts before redirect:", err);
@@ -814,23 +814,70 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
           borderRadius="lg"
           border="1px solid rgba(255,255,255,0.1)"
           w="full"
-          justify="space-between"
+          justify="flex-end"
           position="sticky"
           top={0}
           zIndex={10}
         >
-          <HStack>
-            <Icon as={FaWallet} color="white" />
-            <Text color="white">{shortenAddress(walletAddress)}</Text>
-          </HStack>
-          <HStack>
-            <Icon as={FaEthereum} color="white" />
-            <Text color="white">{parseFloat(balance).toFixed(4)} ETH</Text>
+          <Box
+            p="3px"
+            borderRadius="md"
+            bg="transparent"
+            sx={{
+              backgroundImage: "linear-gradient(270deg, #ff0059, #5a73d8, #7a1d3d , #ed1560, #4a63c8,#701170 )",
+              backgroundSize: "400% 400%",
+              animation: "gradient-border 8s ease infinite",
+              borderRadius: "8px"
+            }}
+          >
+            <HStack
+              p={2}
+              bg="#0a1647"
+              borderRadius="md"
+              w="full"
+            >
+              <Text color="white" fontWeight="medium">
+                {parseFloat(balance).toFixed(4)} ETH
+              </Text>
+            </HStack>
+          </Box>
+          <HStack
+            p={2}
+            bg="#0a1647"
+            borderRadius="md"
+            w="auto"  // Adjust width to fit content
+          >
+
+            <Box
+              p="3px"
+              borderRadius="md"
+              color="white"
+              bg="transparent"
+              fontSize="md"
+              sx={{
+                backgroundImage: "linear-gradient(270deg, #ffcc00, #f49a24, #e25375, #eff780, #f2f2cd)",
+                backgroundSize: "400% 400%",
+                animation: "gradient-border 6s ease infinite",
+                display: "inline-block",
+                borderRadius: "8px",
+              }}
+            >
+              <HStack
+                p={2}
+                bg="#0a1647"
+                borderRadius="md"
+                w="full"
+              >
+                <Text color="white" fontWeight="medium">
+                  {shortenAddress(walletAddress)}
+                </Text>
+              </HStack>
+            </Box>
           </HStack>
         </HStack>
       )}
 
-      <VStack spacing={8} p={8}>
+      <VStack spacing={8} p={3}>
         {!isConnected ? (
           // Wallet connection button shown when not connected
           <Button
@@ -841,7 +888,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
             fontSize="xl"
             fontWeight="bold"
             w="500px"
-            p={6}
+            p={3}
             _hover={{
               bg: 'rgba(255,255,255,0.1)',
               transform: 'translateY(-2px)'
@@ -861,11 +908,12 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                   {/* Information note about market creation */}
                   <Box p={4} bg="rgba(255,255,255,0.05)" borderRadius="xl">
                     <Text fontSize="sm" color="white">
-                      Note: When creating a market, you're establishing a binary options contract
+                      Note: When creating a market, you&apos;re establishing a binary options contract
                       where users can bid on whether the price will be above (LONG) or below (SHORT)
                       the strike price at maturity. The fee you set (between 0.1% and 20%) will be
                       applied to winning positions and distributed to you as the market creator.
                     </Text>
+
                   </Box>
 
                   {/* Asset selection dropdown */}
@@ -887,7 +935,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                         borderColor: "white",
                         boxShadow: "0 0 0 1px white",
                       }}
-                      icon={<Icon as={FaEthereum} color="white" />}
+                      icon={<Icon as={FaEthereum as React.ElementType} color="white" />}
                     >
                       {availableCoins.map((coin) => (
                         <option
@@ -932,11 +980,12 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                       />
                       <InputRightAddon
                         h="60px"
-                        children="$"
                         bg="transparent"
                         borderColor="rgba(255,255,255,0.2)"
                         color="white"
-                      />
+                      >
+                        $
+                      </InputRightAddon>
                     </InputGroup>
                   </Box>
 
@@ -1041,11 +1090,13 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                           />
                           <InputRightAddon
                             h="60px"
-                            children="%"
                             bg="transparent"
                             borderColor="rgba(255,255,255,0.2)"
                             color="white"
-                          />
+                          >
+                            %
+                          </InputRightAddon>
+
                         </InputGroup>
                       </Box>
                     </HStack>
@@ -1156,7 +1207,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                           {priceChangePercent !== 0 && (
                             <>
                               <Icon
-                                as={priceChangePercent > 0 ? FaArrowUp : FaArrowDown}
+                                as={priceChangePercent > 0 ? FaArrowUp as React.ElementType : FaArrowDown as React.ElementType}
                                 color={priceChangePercent > 0 ? "green.400" : "red.400"}
                               />
                               <Text
@@ -1189,9 +1240,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
                       {/* Replace fee section with Note */}
                       <Box p={3} bg="rgba(255,255,255,0.03)" borderRadius="md">
                         <Text fontSize="sm" color="white">
-                          Note: When creating a market, you're establishing a binary options contract where users can bid on whether the price will be above (LONG) or below (SHORT) the strike price at maturity. The fee you set (between 0.1% and 20%) will be applied to winning positions and distributed to you as the market creator.
+                          Note: When creating a market, you&apos;re establishing a binary options contract where users can bid on whether the price will be above (LONG) or below (SHORT) the strike price at maturity. The fee you set (between 0.1% and 20%) will be applied to winning positions and distributed to you as the market creator.
                         </Text>
                       </Box>
+
                     </VStack>
                   </Box>
 

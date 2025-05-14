@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { ethers } from 'ethers';
 
 interface AuthContextType {
@@ -110,7 +110,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   /**
    * Làm mới số dư
    */
-  const refreshBalance = async () => {
+  const refreshBalance = useCallback(async () => {
     if (walletAddress && typeof window.ethereum !== 'undefined') {
       try {
         const provider = new ethers.providers.Web3Provider(window.ethereum);
@@ -120,11 +120,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.error('Refresh balance error:', err);
       }
     }
-  };
+  }, [walletAddress]);
 
-  /**
-   * Tự động cập nhật số dư mỗi block mới
-   */
   useEffect(() => {
     if (isConnected && typeof window.ethereum !== 'undefined') {
       const provider = new ethers.providers.Web3Provider(window.ethereum);
@@ -134,7 +131,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         provider.removeAllListeners('block');
       };
     }
-  }, [isConnected, walletAddress]);
+  }, [isConnected, refreshBalance]);
 
   return (
     <AuthContext.Provider
