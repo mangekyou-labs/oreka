@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 import { Box, Button, Input, VStack, useToast, HStack, Icon, SimpleGrid, Text, Select, Divider, Progress, InputGroup, InputRightAddon, Spinner, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip, InputRightElement } from '@chakra-ui/react';
 import { FaEthereum, FaWallet, FaArrowUp, FaArrowDown, FaClock } from 'react-icons/fa';
 import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketChainlinkABI.json';
-import Factory from '../contracts/abis/FactoryABI.json';  
+import Factory from '../contracts/abis/FactoryABI.json';
 import { FACTORY_ADDRESS } from '../config/contracts';
 import { setContractTradingPair } from '../config/tradingPairs';
 import { useAuth } from '../context/AuthContext';
@@ -26,11 +26,11 @@ interface Coin {
   priceFeedAddress: string; // The address of the price feed for the coin
 }
 
-// Constant for converting real numbers to a specific format
-const STRIKE_PRICE_MULTIPLIER = 100000000; // 10^8 - allows up to 8 decimal places
+  // Constant for converting real numbers to a specific format
+  const STRIKE_PRICE_MULTIPLIER = 100000000; // 10^8 - allows up to 8 decimal places
 
-// Owner component: Allows users to create and manage binary option markets
-const Owner: React.FC<OwnerProps> = ({ address }) => {
+  // Owner component: Allows users to create and manage binary option markets
+  const Owner: React.FC<OwnerProps> = ({ address }) => {
   // Authentication context for wallet connection and balance
   const { isConnected, walletAddress, balance, connectWallet, refreshBalance } = useAuth();
 
@@ -81,6 +81,9 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
   // Router for redirecting to the new contract page
   const router = useRouter();
 
+  // State for deploy progress
+  const [deployProgress, setDeployProgress] = useState(0);
+
   // Handler for coin selection dropdown
   const handleCoinSelect = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const selected = availableCoins.find(coin => coin.value === event.target.value); // Find selected coin
@@ -98,33 +101,33 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
     try {
       setIsCalculatingFee(true);
-  
+
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
-  
+
       // Convert strike price to BigNumber
       const strikePriceFloat = parseFloat(strikePrice);
       const strikePriceInteger = Math.round(strikePriceFloat * STRIKE_PRICE_MULTIPLIER);
       const strikePriceValue = ethers.BigNumber.from(strikePriceInteger.toString());
-  
+
       // Convert maturity datetime to timestamp
       const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000);
-  
+
       // Convert fee to integer
       const feeValue = Math.round(parseFloat(feePercentage) * 10);
-  
+
       // Use the actual priceFeedAddress from selectedCoin
       const normalizedPriceFeedAddress = ethers.utils.getAddress(selectedCoin.priceFeedAddress);
-  
+
       // Generate random indexBg for estimation
       const randomIndexBg = Math.floor(Math.random() * 10) + 1;
-  
+
       const factory = new ethers.ContractFactory(
         BinaryOptionMarket.abi,
         BinaryOptionMarket.bytecode,
         signer
       );
-  
+
       // Create deploy transaction
       const deployTx = factory.getDeployTransaction(
         strikePriceValue,
@@ -135,31 +138,31 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         feeValue,
         randomIndexBg
       );
-  
+
       const gasUnitsDeploy = await provider.estimateGas({
         from: walletAddress,
         data: deployTx.data || "0x",
       });
-  
+
       // Fake deploy address to estimate Factory.deploy
       const fakeAddress = ethers.Wallet.createRandom().address;
-  
+
       const factoryContract = new ethers.Contract(FACTORY_ADDRESS, Factory.abi, signer);
       const factoryData = factoryContract.interface.encodeFunctionData('deploy', [fakeAddress]);
-  
+
       const gasUnitsFactory = await provider.estimateGas({
         from: walletAddress,
         to: FACTORY_ADDRESS,
         data: factoryData,
       });
-  
+
       const totalGasUnits = gasUnitsDeploy.add(gasUnitsFactory);
       setEstimatedGasUnits(totalGasUnits.toString());
-  
+
       const gasPriceWei = ethers.utils.parseUnits(gasPrice, "gwei");
       const gasFeeWei = totalGasUnits.mul(gasPriceWei);
       const gasFeeEth = parseFloat(ethers.utils.formatEther(gasFeeWei));
-  
+
       // Get live ETH price
       const priceService = PriceService.getInstance();
       let usdPrice = 0;
@@ -170,7 +173,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         console.error("ETH price fetch failed:", err);
         usdPrice = 3500; // fallback
       }
-  
+
       const gasFeeUsd = (gasFeeEth * usdPrice).toFixed(2);
       setEstimatedGasFee(gasFeeUsd);
     } catch (err) {
@@ -391,6 +394,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
   // Deploy a new binary option market contract
   const deployContract = async () => {
+    setDeployProgress(1);
     try {
       // Check if all required fields are filled
       if (!selectedCoin || !strikePrice || !maturityDate || !maturityTime) {
@@ -406,7 +410,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
 
       const provider = new ethers.providers.Web3Provider(window.ethereum); // Create provider
       const signer = provider.getSigner(); // Get signer
-      
+
       // Get current network to adapt parameters
       const network = await provider.getNetwork(); // Get network information
       console.log("Deploying on network:", network.name, network.chainId); // Log network information
@@ -415,27 +419,27 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       const strikePriceFloat = parseFloat(strikePrice); // Parse strike price as float
       const strikePriceInteger = Math.round(strikePriceFloat * STRIKE_PRICE_MULTIPLIER); // Convert to integer
       const strikePriceValue = ethers.BigNumber.from(strikePriceInteger.toString()); // Convert to BigNumber
-      
+
       // Calculate maturity timestamp from date/time inputs
       const maturityTimestamp = Math.floor(new Date(`${maturityDate} ${maturityTime}`).getTime() / 1000); // Get maturity timestamp
-      
+
       // Convert fee percentage to the format expected by the contract (multiply by 10)
       const feeValue = Math.round(parseFloat(feePercentage) * 10); // Convert fee percentage to integer
-      
+
       // Create a factory with signer
       const factory = new ethers.ContractFactory(
         BinaryOptionMarket.abi,
         BinaryOptionMarket.bytecode,
         signer
       );
-
+      setDeployProgress(2);
       // IMPORTANT: Use the normalized price feed address from selectedCoin
       // Get network-appropriate price feed address
       const normalizedPriceFeedAddress = ethers.utils.getAddress(selectedCoin.priceFeedAddress); // Normalize price feed address
-      
+
       // Generate a random indexBg value between 1 and 10
       const randomIndexBg = Math.floor(Math.random() * 10) + 1; // Generate random index background
-      
+
       console.log("Deploying contract with parameters:", {
         strikePrice: strikePriceValue.toString(), // Log strike price
         owner: await signer.getAddress(), // Log owner address
@@ -445,7 +449,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         feePercentage: feeValue, // Log fee percentage
         indexBg: randomIndexBg // Log index background
       });
-      
+
       // Adjust gas parameters based on network - with proper typing
       const overrides: { gasLimit?: any; gasPrice?: any } = {}; // Gas parameters
       if (network.chainId === 1) {
@@ -462,7 +466,7 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         // Local or other networks
         overrides.gasLimit = ethers.utils.hexlify(6000000); // Set gas limit for local or other networks
       }
-       
+
       // Deploy with ALL required parameters in correct order
       const contract = await factory.deploy(
         strikePriceValue,                // int _strikePrice
@@ -474,9 +478,9 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         randomIndexBg,                   // uint _indexBg
         overrides                        // Gas parameters
       );
-      
+
       console.log("Transaction hash:", contract.deployTransaction.hash); // Log transaction hash
-      
+
       // Show toast while waiting for deployment
       const deployToastId = toast({
         title: "Deploying Market", // Toast title
@@ -485,10 +489,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         duration: null, // No duration for loading toast
         isClosable: true, // Allow toast to be closed
       });
-      
+
       // Wait for contract to be deployed
       await contract.deployed(); // Wait for deployment
-      
+
       // Update toast to show success
       toast.update(deployToastId, {
         title: "Market Deployed", // Toast title
@@ -496,14 +500,14 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         status: "success", // Toast status
         duration: 5000, // Toast duration
       });
-      
+
       console.log("Contract deployed to:", contract.address); // Log deployed contract address
       setContractAddress(contract.address); // Update contract address state
 
       // Register with Factory contract on current network
       const factoryContract = new ethers.Contract(FACTORY_ADDRESS, Factory.abi, signer); // Create factory contract instance
       const registerTx = await factoryContract.deploy(contract.address, overrides); // Register contract with factory
-      
+
       // Show toast while waiting for registration
       const registerToastId = toast({
         title: "Registering with Factory", // Toast title
@@ -512,10 +516,10 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         duration: null, // No duration for loading toast
         isClosable: true, // Allow toast to be closed
       });
-      
+
       // Wait for transaction to be mined
       await registerTx.wait(); // Wait for registration transaction
-      
+
       // Update toast
       toast.update(registerToastId, {
         title: "Registration Complete", // Toast title
@@ -523,17 +527,19 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         status: "success", // Toast status
         duration: 5000, // Toast duration
       });
-      
+
       // Update deployed contracts list
       setDeployedContracts([...deployedContracts, contract.address]); // Update deployed contracts state
-      
+
       // Reset form after successful deployment
       resetForm(); // Reset form fields
-      
+
       // Refresh wallet balance after deployment
       refreshBalance(); // Refresh wallet balance
+      await fetchDeployedContracts();
       router.push('/listaddress/1');
-      
+
+      setDeployProgress(3);
     } catch (error) {
       console.error("Error deploying contract:", error); // Log error if deployment fails
       toast({
@@ -545,6 +551,62 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
       });
     }
   };
+
+  const fetchDeployedContracts = async () => {
+    try {
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const factory = new ethers.Contract(FACTORY_ADDRESS, Factory.abi, provider);
+
+      const filter = factory.filters.Deployed();
+      const events = await factory.queryFilter(filter);
+      const contractAddresses = events.map(e => e.args?.contractAddress).filter(Boolean);
+
+      const contractsData = await Promise.all(
+        contractAddresses.map(async (address: string) => {
+          const contract = new ethers.Contract(address, BinaryOptionMarket.abi, provider);
+          try {
+            const [positions, oracleDetails, phase, maturityTimeBN, tradingPair, owner] = await Promise.all([
+              contract.positions(),
+              contract.oracleDetails(),
+              contract.currentPhase(),
+              contract.maturityTime(),
+              contract.tradingPair().catch(() => 'Unknown'),
+              contract.owner()
+            ]);
+
+            let indexBg = 1;
+            try {
+              const bg = await contract.indexBg();
+              indexBg = bg.toNumber();
+            } catch { }
+
+            return {
+              address,
+              createDate: new Date().toISOString(),
+              longAmount: ethers.utils.formatEther(positions.long),
+              shortAmount: ethers.utils.formatEther(positions.short),
+              strikePrice: oracleDetails.strikePrice.toString(),
+              phase: phase.toNumber(),
+              maturityTime: maturityTimeBN.toString(),
+              tradingPair,
+              owner,
+              indexBg: indexBg.toString()
+            };
+          } catch (e) {
+            return null;
+          }
+        })
+      );
+
+      const validContracts = contractsData.filter(Boolean);
+      sessionStorage.setItem('cachedDeployedContracts', JSON.stringify(validContracts));
+
+      router.push('/listaddress/1');
+    } catch (err) {
+      console.error("Error fetching contracts before redirect:", err);
+      router.push('/listaddress/1');
+    }
+  }
 
   // Fetch contract balance
   const fetchContractBalance = async () => {
@@ -711,9 +773,9 @@ const Owner: React.FC<OwnerProps> = ({ address }) => {
         try {
           // Convert from BTCUSD to BTC-USD if needed
           const symbol = selectedCoin.value;
-const formattedSymbol = symbol.includes('-')
-  ? symbol
-  : `${symbol.slice(0, symbol.length - 3)}-${symbol.slice(-3)}`;
+          const formattedSymbol = symbol.includes('-')
+            ? symbol
+            : `${symbol.slice(0, symbol.length - 3)}-${symbol.slice(-3)}`;
 
           const priceData = await priceService.fetchPrice(formattedSymbol);
           setCurrentPrice(priceData.price);
@@ -752,23 +814,70 @@ const formattedSymbol = symbol.includes('-')
           borderRadius="lg"
           border="1px solid rgba(255,255,255,0.1)"
           w="full"
-          justify="space-between"
+          justify="flex-end"
           position="sticky"
           top={0}
           zIndex={10}
         >
-          <HStack>
-            <Icon as={FaWallet} color="white" />
-            <Text color="white">{shortenAddress(walletAddress)}</Text>
-          </HStack>
-          <HStack>
-            <Icon as={FaEthereum} color="white" />
-            <Text color="white">{parseFloat(balance).toFixed(4)} ETH</Text>
+          <Box
+            p="3px"
+            borderRadius="md"
+            bg="transparent"
+            sx={{
+              backgroundImage: "linear-gradient(270deg, #ff0059, #5a73d8, #7a1d3d , #ed1560, #4a63c8,#701170 )",
+              backgroundSize: "400% 400%",
+              animation: "gradient-border 8s ease infinite",
+              borderRadius: "8px"
+            }}
+          >
+            <HStack
+              p={2}
+              bg="#0a1647"
+              borderRadius="md"
+              w="full"
+            >
+              <Text color="white" fontWeight="medium">
+                {parseFloat(balance).toFixed(4)} ETH
+              </Text>
+            </HStack>
+          </Box>
+          <HStack
+            p={2}
+            bg="#0a1647"
+            borderRadius="md"
+            w="auto"  // Adjust width to fit content
+          >
+
+            <Box
+              p="3px"
+              borderRadius="md"
+              color="white"
+              bg="transparent"
+              fontSize="md"
+              sx={{
+                backgroundImage: "linear-gradient(270deg, #ffcc00, #f49a24, #e25375, #eff780, #f2f2cd)",
+                backgroundSize: "400% 400%",
+                animation: "gradient-border 6s ease infinite",
+                display: "inline-block",
+                borderRadius: "8px",
+              }}
+            >
+              <HStack
+                p={2}
+                bg="#0a1647"
+                borderRadius="md"
+                w="full"
+              >
+                <Text color="white" fontWeight="medium">
+                  {shortenAddress(walletAddress)}
+                </Text>
+              </HStack>
+            </Box>
           </HStack>
         </HStack>
       )}
 
-      <VStack spacing={8} p={8}>
+      <VStack spacing={8} p={3}>
         {!isConnected ? (
           // Wallet connection button shown when not connected
           <Button
@@ -779,7 +888,7 @@ const formattedSymbol = symbol.includes('-')
             fontSize="xl"
             fontWeight="bold"
             w="500px"
-            p={6}
+            p={3}
             _hover={{
               bg: 'rgba(255,255,255,0.1)',
               transform: 'translateY(-2px)'
@@ -799,11 +908,12 @@ const formattedSymbol = symbol.includes('-')
                   {/* Information note about market creation */}
                   <Box p={4} bg="rgba(255,255,255,0.05)" borderRadius="xl">
                     <Text fontSize="sm" color="white">
-                      Note: When creating a market, you're establishing a binary options contract
+                      Note: When creating a market, you&apos;re establishing a binary options contract
                       where users can bid on whether the price will be above (LONG) or below (SHORT)
                       the strike price at maturity. The fee you set (between 0.1% and 20%) will be
                       applied to winning positions and distributed to you as the market creator.
                     </Text>
+
                   </Box>
 
                   {/* Asset selection dropdown */}
@@ -825,7 +935,7 @@ const formattedSymbol = symbol.includes('-')
                         borderColor: "white",
                         boxShadow: "0 0 0 1px white",
                       }}
-                      icon={<Icon as={FaEthereum} color="white" />}
+                      icon={<Icon as={FaEthereum as React.ElementType} color="white" />}
                     >
                       {availableCoins.map((coin) => (
                         <option
@@ -870,11 +980,12 @@ const formattedSymbol = symbol.includes('-')
                       />
                       <InputRightAddon
                         h="60px"
-                        children="$"
                         bg="transparent"
                         borderColor="rgba(255,255,255,0.2)"
                         color="white"
-                      />
+                      >
+                        $
+                      </InputRightAddon>
                     </InputGroup>
                   </Box>
 
@@ -979,11 +1090,13 @@ const formattedSymbol = symbol.includes('-')
                           />
                           <InputRightAddon
                             h="60px"
-                            children="%"
                             bg="transparent"
                             borderColor="rgba(255,255,255,0.2)"
                             color="white"
-                          />
+                          >
+                            %
+                          </InputRightAddon>
+
                         </InputGroup>
                       </Box>
                     </HStack>
@@ -1094,7 +1207,7 @@ const formattedSymbol = symbol.includes('-')
                           {priceChangePercent !== 0 && (
                             <>
                               <Icon
-                                as={priceChangePercent > 0 ? FaArrowUp : FaArrowDown}
+                                as={priceChangePercent > 0 ? FaArrowUp as React.ElementType : FaArrowDown as React.ElementType}
                                 color={priceChangePercent > 0 ? "green.400" : "red.400"}
                               />
                               <Text
@@ -1127,9 +1240,10 @@ const formattedSymbol = symbol.includes('-')
                       {/* Replace fee section with Note */}
                       <Box p={3} bg="rgba(255,255,255,0.03)" borderRadius="md">
                         <Text fontSize="sm" color="white">
-                          Note: When creating a market, you're establishing a binary options contract where users can bid on whether the price will be above (LONG) or below (SHORT) the strike price at maturity. The fee you set (between 0.1% and 20%) will be applied to winning positions and distributed to you as the market creator.
+                          Note: When creating a market, you&apos;re establishing a binary options contract where users can bid on whether the price will be above (LONG) or below (SHORT) the strike price at maturity. The fee you set (between 0.1% and 20%) will be applied to winning positions and distributed to you as the market creator.
                         </Text>
                       </Box>
+
                     </VStack>
                   </Box>
 
@@ -1163,19 +1277,42 @@ const formattedSymbol = symbol.includes('-')
             <VStack spacing={6} w="full" maxW="1200px" mt={8}>
               <Box w="full">
                 <HStack spacing={4} justify="space-between" mb={4}>
-                  <Text color="white" fontWeight={600}>Approving sUSD</Text>
-                  <Text color="gray.400">Creating market</Text>
-                  <Text color="gray.400">Finished</Text>
+                  <Text color={deployProgress >= 1 ? "white" : "gray.400"} fontWeight={deployProgress === 1 ? "bold" : "normal"}>
+                    Approving sUSD
+                  </Text>
+                  <Text color={deployProgress >= 2 ? "white" : "gray.400"} fontWeight={deployProgress === 2 ? "bold" : "normal"}>
+                    Creating market
+                  </Text>
+                  <Text color={deployProgress === 3 ? "white" : "gray.400"} fontWeight={deployProgress === 3 ? "bold" : "normal"}>
+                    Finished
+                  </Text>
                 </HStack>
+
                 <Box position="relative" h="2px" bg="rgba(255,255,255,0.1)" w="full">
-                  <Box position="absolute" left={0} top={0} h="2px" w="33%" bg="white" />
+                  <Box
+                    position="absolute"
+                    left={0}
+                    top={0}
+                    h="2px"
+                    w={`${(deployProgress / 3) * 100}%`}
+                    bg="white"
+                    transition="width 0.3s ease"
+                  />
                   <HStack justify="space-between" position="absolute" w="full" top="-8px">
-                    <Box w="20px" h="20px" borderRadius="full" bg="white" />
-                    <Box w="20px" h="20px" borderRadius="full" bg="rgba(255,255,255,0.1)" />
-                    <Box w="20px" h="20px" borderRadius="full" bg="rgba(255,255,255,0.1)" />
+                    {[1, 2, 3].map((step) => (
+                      <Box
+                        key={step}
+                        w="20px"
+                        h="20px"
+                        borderRadius="full"
+                        bg={deployProgress >= step ? "white" : "rgba(255,255,255,0.1)"}
+                        border="2px solid white"
+                      />
+                    ))}
                   </HStack>
                 </Box>
               </Box>
+
 
               <Button
                 onClick={deployContract}

@@ -422,7 +422,7 @@ export class PriceService {
           } else if (symbol.toLowerCase().includes('link')) {
             coinId = 'chainlink';
           } else if (symbol.toLowerCase().includes('snx')) {
-            coinId = 'synthetix';
+            coinId = 'havven';
           } else if (symbol.toLowerCase().includes('eth')) {
             coinId = 'ethereum';
           }
