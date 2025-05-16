@@ -4,8 +4,6 @@ A decentralized binary options trading platform built on the Internet Computer P
 
 ## Overview 🌟
 
-The Binary Options Market is a proof-of-concept prediction market that leverages ICP's infrastructure to create a transparent and decentralized trading environment. Users can participate by predicting whether an asset's price will go up or down within a specified timeframe.
-
 ### Key Features
 - 📈 Resolved with price feeds via HTTP Outcalls
 - ⚡ 30-second trading windows
@@ -16,71 +14,63 @@ The Binary Options Market is a proof-of-concept prediction market that leverages
 
 ## Demo 🎮
 
-![Trading Interface](./docs/images/UI-demo.png)
+- [EVM Demo](https://youtu.be/krkaNUv0kKY)
+- [EVM webiste](https://oreka.zeta.vercel.app)
+- [ICP Demo](https://youtu.be/3SbgZNxx3wU)
 
-- [Demo 1](https://drive.google.com/file/d/1C3wPzyXKbTXys8lZsR3-WREsOCCNbdZB/view?usp=sharing)
-- [Demo 2](https://drive.google.com/file/d/1P47yfKLGNXfwjS3YHDA9k1iZrf9nMMRy/view?usp=sharing)
+
 
 ![Diagram](./docs/images/diagram.png)
-## Architecture 📐
-
-The project consists of three main components:
-
-1. **Factory Canister** (`canisters/factory/`)
-   - Creates and manages binary option market canisters
-   - Allows customization of trading pairs and fees
-   - Tracks deployed markets by owner
-   - Manages canister lifecycle
-
-2. **Binary Option Market Canister** (`canisters/binary_option_market/`)
-   - Core trading/managing logic
-   - HTTP Outcalls for price feeds based on trading pairs
-   - State management
-   - Account management
-   - Support for customizable fees
-   - Public resolveMarket function
-
-3. **Frontend** (`icp-asset/`)
-   - React/Next.js interface
-   - Internet Identity integration
-   - Real-time updates
-   - Market creation and management UI
 
 ### Factory Canister Architecture
 
-The Factory Canister serves as the central hub for creating and managing Binary Option Markets. It provides the following capabilities:
+```
+                      +----------------------------------+
+                      |          FACTORY CANISTER        |
+                      +---------------+------------------+
+                                      |
+           +-------------------------+-------------------------+-------------------------+
+           |                         |                         |                         |
++----------v-----------+  +----------v-----------+  +----------v-----------+  +----------v-----------+
+|  Market Deployment   |  | Contract Management  |  |   Events Tracking    |  |   WASM Module Mgmt   |
++----------------------+  +----------------------+  +----------------------+  +----------------------+
+| • deployMarket()     |  | • getContractDetails |  | • getRecentEvents()  |  | • fetchWasmModule()  |
+| • createCanister()   |  | • getMarketDetails() |  | • Log deploy events  |  | • registerWasmModule |
+| • installCode()      |  | • getAllMarkets()    |  | • DeployEvent type   |  | • registerWasmChunk  |
+| • configParameters   |  | • getAllContracts()  |  | • Archive events     |  | • upgradeAllMarkets  |
++----------+-----------+  +----------+-----------+  +----------------------+  +----------------------+
+           |                         |
+           v                         v
++----------+-----------+  +----------+-----------+
+|   Binary Options     |  |     State Storage    |
+|   Market Canisters   |  +----------------------+
++----------------------+  | • allContracts       |
+| • Market 1           |  | • ownerContracts     |
+| • Market 2           |  | • deployEvents       |
+| • Market N           |  | • wasmModuleStable   |
++----------------------+  +----------------------+
+```
 
-x#### Key Components
+#### Key Components
 
 1. **Market Deployment**
-   - Creates customizable prediction markets with:
+   - Creates customizable prediction markets with specific parameters:
      - Custom trading pairs (e.g., "ICP-USD", "BTC-USD")
-     - Customizable fee structures
-     - Configurable maturity times
-     - Unique strike prices
+     - Strike price for the binary option
+     - Maturity time (expiry timestamp)
+     - Fee percentage for the market
+   - Manages canister creation lifecycle including:
+     - Allocating cycles for new canisters
+     - Creating empty canisters
+     - Installing WASM code modules
+     - Setting appropriate controllers
 
-2. **Contract Management**
-   - Tracks all deployed contracts
-   - Filters contracts by owner
-   - Manages canister settings and controllers
+2. **WASM Module Management**
+   - Fetches and caches Binary Option Market WASM code
+   - Supports HTTP outcalls to retrieve code from GitHub
+   - Handles chunked uploads for large WASM files
+   - Provides canister upgrade capabilities
 
-3. **Events Tracking**
-   - Records deployment events
-   - Maintains historical market creation data
-
-#### Data Structures
-
-- `Contract`: Stores metadata about each deployed market
-- `ContractType`: Categorizes different types of contracts
-- `DeployEvent`: Records market creation events
-
-#### Deployment Flow
-
-1. User calls `deployMarket` with parameters
-2. Factory creates a new canister
-3. Factory installs Binary Option Market code with provided parameters
-4. Factory sets controllers for the new canister
-5. Factory records the new market in its registry
 
 ## Technical Stack 🛠
 
@@ -183,98 +173,7 @@ Parameters:
 - `10`: Fee percentage (10%)
 - `"ICP-USD"`: Trading pair
 
-## Project Status 📊
-
-Current Features:
-- ✅ Core prediction market contracts
-- ✅ HTTP Outcalls price feed integration
-- ✅ Basic trading interface
-- ✅ Internet Identity integration
-- ✅ Factory for deploying custom markets
-- ✅ Support for multiple cryptocurrency pairs
-
-Roadmap:
-- 🔄 Advanced trading features
-- 🔄 Multi-asset support
-- 🔄 Shared liquidity infrastructure
-
-## Future Development 🔮
-
-We have exciting plans to enhance the platform:
-
-1. **ChainFusion Integration**
-   - Implementation of ChainFusion as an oracle solution
-   - Support for EVM-compatible smart contracts
-
-2. **Shared Liquidity Infrastructure**
-   - Cross-chain liquidity pools
-   - Unified prediction market ecosystem
-
-## Contributing 🤝
-
-Contributions are welcome! Please read our contributing guidelines before submitting PRs.
-
-## License 📄
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments 🙏
-
-- DFINITY Foundation
-- Internet Computer Community
-
-## Contact 📧
-
-For questions and support, please open an issue or reach out to the maintainers.
-
-## Deployment Backend API
-
-The project now includes a dedicated API for automating the deployment of WASM modules to created canisters. This eliminates the need to manually run the `deploy-market.sh` script after creating a market.
-
-### Running the Deployment API
-
-1. Install the required dependencies:
-   ```
-   npm install
-   ```
-
-2. Start the API server:
-   ```
-   npm run start:api
-   ```
-
-3. For development with auto-reload:
-   ```
-   npm run dev:api
-   ```
-
-The API server runs on port 3001 by default. You can change this by setting the `API_PORT` environment variable.
-
-### API Endpoints
-
-- `GET /health` - Health check endpoint
-- `POST /api/deploy/market` - Deploy WASM to a market canister
-  - Body parameters:
-    - `canisterId` - The canister ID to deploy to
-    - `strikePrice` - The strike price for the market
-    - `maturityTimestamp` - The maturity timestamp in seconds
-    - `feePercentage` - The fee percentage (0-100)
-    - `tradingPair` - The trading pair (default: ICP-USD)
-- `GET /api/deploy/status/:canisterId` - Check deployment status of a canister
-
-### Configuration
-
-Configure the frontend to use the API by setting these environment variables:
-
-```
-NEXT_PUBLIC_DEPLOYMENT_API_URL=http://localhost:3001/api/deploy
-```
-
----
-
-Built with ❤️ for the Internet Computer ecosystem.
-
-# Oreka Factory Canister
+# Important Notes for Factory Canister
 
 ## Cycles Requirements
 
@@ -291,4 +190,79 @@ The Factory canister requires a sufficient amount of cycles to deploy and operat
 - The exact cycle consumption may vary slightly depending on market parameters and network conditions
 - For safety, consider allocating extra cycles beyond the minimum requirements
 
-## Functions
+## Project Status 📊
+
+Current Features:
+- ✅ Core prediction market contracts
+- ✅ HTTP Outcalls price feed integration
+- ✅ Basic trading interface
+- ✅ Internet Identity integration
+- ✅ Factory for deploying custom markets
+- ✅ Support for multiple cryptocurrency pairs
+
+## Work-In-Progress 🚧
+
+- **Liquidity Tree AMM Design Diagram**
+```
+                                  +-------------------+
+                                  |   Liquidity Tree  |
+                                  |   AMM for Markets |
+                                  +-------------------+
+                                           |
+                          +----------------+---------------+
+                          |                                |
+              +-----------v------------+      +-----------v------------+
+              |    Liquidity Pool      |      |   Prediction Markets   |
+              |  (Single Token Pool)   <----->|   (Betting Conditions) |
+              +-----------+------------+      +-----------+------------+
+                          |                                |
+      +-------------------+-------------------+            |
+      |                   |                   |            |
++-----v------+     +-----v------+     +------v-----+      |
+|   Leaf 1   |     |   Leaf 2   |     |   Leaf 3   |      |
+| (LP Node)  |     | (LP Node)  |     | (LP Node)  |      |
++-----+------+     +-----+------+     +------+-----+      |
+      |                   |                   |            |
+      |                   |                   |            |
++-----v------+     +-----v------+     +------v-----+      |
+| Liquidity  |     | Liquidity  |     | Liquidity  |      |
+| Provider 1 |     | Provider 2 |     | Provider 3 |      |
++------------+     +------------+     +------------+      |
+                                                          |
+                          +-------------------------------|
+                          |                               |
+               +----------v-----------+      +------------v-----------+
+               |  Market Resolution   |      |   Outcome Settlement   |
+               | (Oracle Resolution)  |      | (Profit/Loss Handling) |
+               +----------------------+      +------------------------+
+```
+
+- **LMSR AMM**: https://youtu.be/f0sqRKw5vqI
+
+### Calling for ICP Collaboration 📢
+
+If you're interested in contributing to this platform, please DM for further collaboration opportunities.
+
+The Liquidity Tree AMM design enables efficient management of shared liquidity across multiple prediction markets simultaneously, eliminating the traditional need for dedicated market makers. This design allows for:
+
+1. Optimized capital efficiency across all markets
+2. Automatic fair profit/loss distribution to liquidity providers
+3. Scalable infrastructure for hosting thousands of markets
+4. Competitive pricing through advanced mathematical models
+
+## License 📄
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments 🙏
+
+- DFINITY Foundation
+- Internet Computer Community
+
+## Contact 📧
+
+For questions and support, please open an issue or reach out to the maintainers.
+
+---
+
+Built with ❤️ for the Internet Computer ecosystem.
