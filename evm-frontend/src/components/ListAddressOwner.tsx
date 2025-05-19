@@ -14,7 +14,7 @@ import Factory from '../contracts/abis/FactoryABI.json';
 import { useToast } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
 import { FACTORY_ADDRESS } from '../config/contracts';
-import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketChainlinkABI.json';
+import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketABI.json';
 import { useAuth } from '../context/AuthContext';
 import { PriceService } from '../services/PriceService';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -28,7 +28,7 @@ interface ListAddressOwnerProps {
   page: number;
 }
 
-// ContractData interface
+
 interface ContractData {
   address: string;
   deployTime: number;
@@ -43,7 +43,6 @@ interface ContractData {
   indexBg: string;
 }
 
-// Phase enum
 enum Phase { Trading, Bidding, Maturity, Expiry }
 
 
@@ -80,30 +79,14 @@ const getPhaseName = (phase: number) => {
 };
 
 
-// Function to get market title JSX
-const getMarketTitleJSX = (contract: any): JSX.Element => {
-  const text = getMarketTitleText(contract);
-
-  const bgColors = [
-    "#6EE7B7", "#FCD34D", "#FCA5A5", "#A5B4FC", "#F9A8D4",
-    "#FDBA74", "#67E8F9", "#C4B5FD", "#F87171", "#34D399"
-  ];
-  const indexBg = contract.indexBg ?? 0;
-  const bgColor = bgColors[indexBg % bgColors.length];
-
-  const pair = contract.tradingPair.replace('/', '-');
-  const pairColor = "#FEDF56";
-
-  return (
-    <Text>
-      <Text as="span" color={pairColor} fontWeight="semibold">{pair}</Text>{' '}
-      will reach{' '}
-      <Text as="span" color={bgColor} fontWeight="bold">
-        ${text.split('$')[1]?.split(' ')[0]}
-      </Text>{' '}
-      by {text.split('by ')[1]}
-    </Text>
-  );
+/**
+ * Cleans up market titles by removing timestamp references in parentheses
+ * @param {string} title - The original market title
+ * @return {string} Cleaned title without timestamp information
+ */
+const cleanupMarketTitle = (title: string) => {
+  // Remove any string within parentheses containing "Sat"
+  return title.replace(/\([^)]*Sat[^)]*\)/g, '').trim();
 };
 
 /**
@@ -134,10 +117,6 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
   const currentPage = page;
   const contractsPerPage = 12;
   const [currentContracts, setCurrentContracts] = useState<ContractData[]>([]);
-
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<ContractData[]>([]);
-
 
   // Factory contract address for interacting with the main factory
   const FactoryAddress = FACTORY_ADDRESS;
@@ -296,15 +275,9 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
  * Slices the full contracts array to show only the current page's worth of contracts
  */
   useEffect(() => {
-    // Sort deployedContracts first to show newest contracts first
-    const sortedContracts = [...deployedContracts].sort((a, b) => {
-      // Use deployment time for sorting - newer contracts first
-      return new Date(b.createDate).getTime() - new Date(a.createDate).getTime();
-    });
-
     const indexOfLastContract = page * contractsPerPage;
     const indexOfFirstContract = indexOfLastContract - contractsPerPage;
-    const newCurrentContracts = sortedContracts.slice(indexOfFirstContract, indexOfLastContract);
+    const newCurrentContracts = deployedContracts.slice(indexOfFirstContract, indexOfLastContract);
     setCurrentContracts(newCurrentContracts);
   }, [deployedContracts, page]);
 
@@ -316,26 +289,9 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
     fetchDeployedContracts();
   }, [ownerAddress, page]);
 
-  useEffect(() => {
-    const cached = sessionStorage.getItem('cachedDeployedContracts');
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        setDeployedContracts(parsed);
-        setLoading(false);
-        sessionStorage.removeItem('cachedDeployedContracts');
-      } catch (err) {
-        console.error("Error parsing cached deployed contracts:", err);
-        fetchDeployedContracts();
-      }
-    } else {
-      fetchDeployedContracts();
-    }
-  }, []);
-
   /**
    * Fetches all deployed contracts from the blockchain
-   * Retrieves contracts from factory events to show all deployed contracts
+   * Retrieves contracts from known owners and falls back to event logs if needed
    */
   const fetchDeployedContracts = async () => {
     try {
@@ -534,36 +490,10 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
 
   /**
  * Initial contract data loading when owner address changes
- * Sorts contracts by creation date (newest first)
  */
   useEffect(() => {
-    const fetchAndSortContracts = async () => {
-      await fetchDeployedContracts();
-
-      // Sort contracts with newest first after fetching
-      setDeployedContracts(prevContracts => {
-        return [...prevContracts].sort((a, b) => {
-          return new Date(b.createDate).getTime() - new Date(a.createDate).getTime();
-        });
-      });
-    };
-
-    fetchAndSortContracts();
+    fetchDeployedContracts();
   }, [ownerAddress]);
-
-  /**
-   * Get icon by symbol
-   * @param {string} tradingPair - The trading pair symbol
-   * @returns {React.ReactNode} The icon component
-   */
-  const getIconBySymbol = (tradingPair: string) => {
-    if (tradingPair.includes("BTC")) return SiBitcoinsv;
-    if (tradingPair.includes("ETH")) return FaEthereum;
-    if (tradingPair.includes("LINK")) return SiChainlink;
-    if (tradingPair.includes("SNX")) return SiExpertsexchange;
-    if (tradingPair.includes("WSTETH")) return TbDropletHalf2Filled;
-    return FaDollarSign;
-  };
 
   /**
    * Set up event listeners for new contract deployments
@@ -625,11 +555,11 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
 
   /**
  * Handles contract selection and navigation
- * Prepares comprehensive data for immediate rendering in Customer.tsx and MarketCharts.tsx
+ * Stores contract data in localStorage and redirects to appropriate view
  * 
  * @param {string} contractAddress - Address of the selected contract
  * @param {string} owner - Owner address of the contract
- * @param {ContractData} contractData - Basic contract data object
+ * @param {ContractData} contractData - Full contract data object
  */
   const handleAddressClick = (contractAddress: string, owner: string, contractData: ContractData) => {
     try {
@@ -912,21 +842,12 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
     deployedContracts.forEach(contract => {
       if (!contract) return;
 
-      // Get indexBg from contract data
-      let bgIndex: number;
+      // Read indexBg from contract and convert to number
+      const bgIndex = contract.indexBg ?
+        Math.min(Math.max(parseInt(contract.indexBg), 1), 10) :
+        1;
 
-      if (contract.indexBg && contract.indexBg !== '0') {
-        // Use indexBg from contract
-        bgIndex = parseInt(contract.indexBg);
-        console.log(`Contract ${contract.address} has indexBg from contract: ${bgIndex}`);
-      } else {
-        // Generate a random indexBg if not available
-        bgIndex = 1; // Random value between 1-10
-        console.log(`Contract ${contract.address} using generated indexBg: ${bgIndex}`);
-      }
-
-      // Ensure value is between 1-10
-      bgIndex = Math.min(Math.max(bgIndex, 1), 10);
+      console.log(`Contract ${contract.address} using background index: ${bgIndex}`);
       newImageIndices[contract.address] = bgIndex;
     });
 
@@ -955,44 +876,49 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
     // Make sure these match the format used by Coinbase API (with hyphens)
     const tradingPairs = ['BTC-USD', 'ETH-USD', 'LINK-USD', 'SNX-USD', 'WSTETH-USD'];
 
-    // Get price service instance
+    // Get PriceService instance
     const priceService = PriceService.getInstance();
 
-    // Format pair for display
+    // Create a mapping function to convert from API format to display format
     const formatPairForDisplay = (apiSymbol: string) => apiSymbol.replace('-', '/');
 
-    // Subscribe to WebSocket prices
+    // Subscribe to websocket updates
     const unsubscribe = priceService.subscribeToWebSocketPrices((priceData) => {
+      // When we get a price update, update our state
+      // Convert the symbol format from API format (BTC-USD) to display format (BTC/USD)
       const displaySymbol = formatPairForDisplay(priceData.symbol);
+
       setAssetPrices(prev => ({
         ...prev,
         [displaySymbol]: priceData.price
       }));
-    }, uniquePairs);
 
-    // Fetch initial prices for unique pairs
-    uniquePairs.forEach(async (pair) => {
+      console.log(`Updated price for ${displaySymbol}: $${priceData.price}`);
+    }, tradingPairs);
+
+    // Load initial prices directly
+    tradingPairs.forEach(async (pair) => {
       try {
         const priceData = await priceService.fetchPrice(pair);
         const displaySymbol = formatPairForDisplay(pair);
+
         setAssetPrices(prev => ({
           ...prev,
           [displaySymbol]: priceData.price
         }));
+
+        console.log(`Initial price for ${displaySymbol}: $${priceData.price}`);
       } catch (error) {
         console.error(`Error fetching initial price for ${pair}:`, error);
       }
     });
 
-    // Cleanup WebSocket subscription on unmount
-    return () => unsubscribe();
-  }, [deployedContracts]);
+    // Clean up by unsubscribing when component unmounts
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
-
-  /**
-   * Calculates percentage of long and short positions for each contract
-   * Maps contract addresses to their respective percentages
-   */
   useEffect(() => {
     const newPercentages: { [key: string]: { long: number, short: number } } = {};
 
@@ -1018,7 +944,6 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       }
     });
 
-    // Update contract percentages state
     setContractPercentages(newPercentages);
   }, [deployedContracts]);
 
@@ -1200,11 +1125,12 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       {/* Application header with wallet connection status */}
       <Flex
         as="header"
+        align="center"
         justify="space-between"
         p={4}
         bg="#0A0B0E"
         borderBottom="1px"
-        borderColor="gray.700"
+        borderColor="gray.200"
         position="sticky"
         top="0"
         zIndex="sticky"
@@ -1462,7 +1388,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 height: '8px',
               },
               '&::-webkit-scrollbar-thumb': {
-                backgroundColor: 'rgba(100,149,237,0.2)',
+                backgroundColor: 'rgba(0,0,0,0.1)',
                 borderRadius: '4px',
               }
             }}
@@ -1546,7 +1472,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
           // {/* Loading message */}
           <Text color="gray.600">Loading...</Text>
         ) : deployedContracts.length > 0 ? (
-          // {/* Display contracts in a grid layout - 4 columns, which will create 3 rows with 12 items */}
+          // {/* Display contracts in a grid layout */}
           <SimpleGrid
             columns={{ base: 1, md: 2, lg: 3, xl: 4 }}
             spacing={4}
@@ -1558,7 +1484,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 key={index}
                 p="2px"
                 borderRadius="lg"
-                background="linear-gradient(135deg, #00c6ff, #0072ff, #6a11cb, #2575fc)"
+                background="linear-gradient(135deg, #00c6ff, #0072ff, #6a11cb, #2575fc)" // Gradient border
                 transition="transform 0.2s"
                 _hover={{ transform: 'translateY(-4px)' }}
                 cursor="pointer"
@@ -1597,7 +1523,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
 
                   >
                     <Image
-                      src={`/images/${tradingPair.split('/')[0].toLowerCase()}/${tradingPair.split('/')[0].toLowerCase()}${contractImageIndices[address]?.toString() || '1'}.png`}
+                      src={`/images/${tradingPair.split('/')[0].toLowerCase()}/${tradingPair.split('/')[0].toLowerCase()}${contractImageIndices[address] || 1}.png`}
                       alt={tradingPair}
                       w="100%"
                       h="100%"
