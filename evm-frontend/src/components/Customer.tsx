@@ -13,12 +13,11 @@ import {
   Link, Skeleton, UnorderedList, ListItem
 } from '@chakra-ui/react';
 import { ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons';
-import { FaWallet, FaChevronLeft, FaArrowUp, FaArrowDown, FaCoins, FaChevronRight, FaRegClock } from 'react-icons/fa';
+import { FaWallet, FaChevronLeft, FaArrowUp, FaArrowDown, FaRegClock } from 'react-icons/fa';
 import { PiChartLineUpLight } from "react-icons/pi";
 import { CheckIcon } from '@chakra-ui/icons';
 import { GrInProgress } from "react-icons/gr";
 import { ethers } from 'ethers';
-import { motion, useAnimation } from 'framer-motion';
 import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketChainlinkABI.json';
 import { PriceService, PriceData } from '../services/PriceService';
 import { useRouter } from 'next/router';
@@ -2434,7 +2433,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                   >
 
                   </Box>
-
                 </Flex>
 
                 {shortPercentage > 8 && (
@@ -2567,20 +2565,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               </Flex>
             </Box>
           )}
-          <Box p={4} borderRadius="xl" mb={4} borderWidth={1} borderColor="gray.700">
-            <Text fontSize="lg" fontWeight="bold" mb={3} color="white">
-              My Holdings
-            </Text>
-            <Button
-              variant="ghost"
-              color="#4169e1"
-              onClick={() => router.push('/listaddress/1?currentTab=My%20Holdings')}
-              rightIcon={FaChevronRight as unknown as JSX.Element}
-              _hover={{ bg: 'rgba(254, 223, 86, 0.1)' }}
-            >
-              Make your first Prediction Market
-            </Button>
-          </Box>
 
           {/* Market Timeline */}
           <Box

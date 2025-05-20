@@ -1,15 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ethers } from 'ethers';
-import { Box, Button, HStack, Icon, Text, VStack, SimpleGrid, Flex, Input, Select, Divider, Progress, InputGroup, InputRightAddon, Spinner, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip, Spacer, Image, InputRightElement } from '@chakra-ui/react';
+import { Box, Button, HStack, Icon, Text, VStack, SimpleGrid, Flex, Input, Select, Divider, InputGroup, Image, InputRightElement } from '@chakra-ui/react';
 
-import { FaCalendarDay, FaPlayCircle, FaClock, FaCheckCircle, FaListAlt, FaRegClock, FaDollarSign } from 'react-icons/fa'; // Import các biểu tượng
-import { IoWalletOutline } from "react-icons/io5";
-import { FaEthereum, FaWallet, FaTrophy, FaArrowUp, FaArrowDown, FaSearch } from 'react-icons/fa';
-import { GoInfinity } from "react-icons/go";
+import { FaRegClock, FaDollarSign } from 'react-icons/fa';
+import { FaEthereum, FaWallet, FaSearch } from 'react-icons/fa';
 import { TbDropletHalf2Filled } from "react-icons/tb";
 import { GrDeploy } from 'react-icons/gr';
 import { SiBitcoinsv, SiChainlink, SiExpertsexchange } from "react-icons/si";
-import { FaCoins } from "react-icons/fa";
 import Factory from '../contracts/abis/FactoryABI.json';
 import { useToast } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
@@ -18,9 +15,7 @@ import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketABI.json';
 import { useAuth } from '../context/AuthContext';
 import { PriceService } from '../services/PriceService';
 import { format, formatDistanceToNow } from 'date-fns';
-import { determineMarketResult } from '../utils/market';
 import { getCurrentTimestamp, isTimestampPassed, getTimeRemaining, formatTimeToLocal } from '../utils/timeUtils';
-import { STRIKE_PRICE_MULTIPLIER } from '../utils/constants';
 import { getChartSymbolFromTradingPair } from '../utils/priceFeeds';
 
 interface ListAddressOwnerProps {
@@ -78,17 +73,6 @@ const getPhaseName = (phase: number) => {
   }
 };
 
-
-/**
- * Cleans up market titles by removing timestamp references in parentheses
- * @param {string} title - The original market title
- * @return {string} Cleaned title without timestamp information
- */
-const cleanupMarketTitle = (title: string) => {
-  // Remove any string within parentheses containing "Sat"
-  return title.replace(/\([^)]*Sat[^)]*\)/g, '').trim();
-};
-
 /**
  * ListAddressOwner Component
  * Displays a list of binary option markets owned by a specific address
@@ -121,6 +105,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
   // Factory contract address for interacting with the main factory
   const FactoryAddress = FACTORY_ADDRESS;
 
+  // Get deployed contracts for the specified owner address
   const [marketResults, setMarketResults] = useState<{ [key: string]: string }>({});
   // Tab selection for filtering markets
   const [currentTab, setCurrentTab] = useState<string>('All Markets');
@@ -129,11 +114,11 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
   // Trading pair filter
   const [currentTradingPairFilter, setCurrentTradingPairFilter] = useState<string | null>(null);
 
-  // One week ago timestamp
-  const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-
   // User holdings contracts
   const [userHoldingsContracts, setUserHoldingsContracts] = useState<string[]>([]);
+
+  // Update current phase when it change
+  const [currentPhase, setCurrentPhase] = useState<number>(Phase.Trading);
 
   /**
    * Filters contracts based on the currently selected tab
@@ -253,22 +238,6 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
     fetchUserHoldings();
   }, [walletAddress, deployedContracts]);
 
-
-  /**
-   * Calculates total page count based on number of contracts and pagination settings
-   * Provides a navigation handler for changing pages
-   */
-  // const totalPages = Math.ceil(deployedContracts.length / contractsPerPage);
-
-  /**
-   * Handles pagination navigation
-   * @param {number} page - Target page number to navigate to
-   */
-  // const handlePageChange = (page: number) => {
-  //   if (page !== currentPage) { // Only change if page is different from current
-  //     router.push(`/listaddress/page${page}`);
-  //   }
-  // };
 
   /**
  * Updates displayed contracts when page changes or when contract data updates
@@ -495,6 +464,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
     fetchDeployedContracts();
   }, [ownerAddress]);
 
+
   /**
    * Set up event listeners for new contract deployments
    * Refreshes contract list automatically when new contracts are deployed
@@ -515,6 +485,16 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       console.log("New contract deployed event received:", contractAddress);
       console.log("Owner:", owner);
       console.log("Index:", index);
+
+      // Fetch the updated phase for the new contract
+      const fetchUpdatedPhase = async () => {
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const contract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, provider);
+        const phase = await contract.currentPhase();
+        setCurrentPhase(Number(phase));
+      };
+
+      fetchUpdatedPhase();
 
       // Always update contract list when a new contract is deployed
       fetchDeployedContracts();
@@ -756,6 +736,8 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       router.push(`/customer/${contractAddress}`);
     }
   };
+
+
   /**
    * Shortens an Ethereum address for display purposes
    * @param {string} address - The full Ethereum address to shorten
@@ -1312,15 +1294,6 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 </Text>
               </HStack>
 
-              {/* Inject CSS animation
-              <style jsx>{`
-                  @keyframes gradient-border {
-                    0% { background-position: 0% 50%; }
-                    50% { background-position: 100% 50%; }
-                    100% { background-position: 0% 50%; }
-                  }
-                `}
-              </style> */}
             </Box>
 
             <Box
@@ -1351,15 +1324,6 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 {shortenAddress(walletAddress)}
               </Button>
 
-              {/* Inject animation for the border
-              <style jsx>{`
-                  @keyframes gradient-border {
-                    0% { background-position: 0% 50%; }
-                    50% { background-position: 100% 50%; }
-                    100% { background-position: 0% 50%; }
-                  }
-                `}
-              </style> */}
             </Box>
           </HStack>
         ) : (
@@ -1573,10 +1537,6 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                     >
                       {marketTitles[address] || "Loading..."}
                     </Box>
-
-
-
-
                     <HStack direction="column" w="100%" mb={4} width="100%">
                       {Number(phase) === Phase.Maturity || Number(phase) === Phase.Expiry ? (
                         <Box
@@ -1599,7 +1559,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                           </Text>
                         </Box>
                       ) : (
-                        // Kiểm tra nếu phase là Trading và thời gian đã hết hạn
+                        // Display Expired stetus when contract don't use
                         (Number(phase) === Phase.Trading && Date.now() / 1000 > Number(maturityTime)) ? (
                           <Box
                             w="100%"

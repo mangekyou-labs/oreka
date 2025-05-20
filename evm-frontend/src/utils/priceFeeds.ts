@@ -1,4 +1,4 @@
-// Map từ Chainlink price feed addresses sang trading pairs
+// Map from Chainlink price feed addresses into trading pairs
 export const CHAINLINK_PRICE_FEEDS_MAP = {
   "0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43": "BTC/USD",
   "0x694AA1769357215DE4FAC081bf1f309aDC325306": "ETH/USD",
@@ -7,25 +7,25 @@ export const CHAINLINK_PRICE_FEEDS_MAP = {
   "0xaaabb530434B0EeAAc9A42E25dbC6A22D7bE218E": "WSTETH/USD",
 };
 
-// Hàm chuyển đổi từ price feed address sang trading pair
+// convert price feed address to corresponding trading pair 
 export const getTradingPairFromPriceFeed = (priceFeedAddress: string): string => {
   return CHAINLINK_PRICE_FEEDS_MAP[priceFeedAddress] || "Unknown";
 };
 
-// Hàm chuyển đổi từ trading pair sang chart symbol format
+// convert trading pair to symbol chart
 export const getChartSymbolFromTradingPair = (tradingPair: string): string => {
   if (!tradingPair) return '';
   return tradingPair.replace('/', '-');
 };
 
-// Hàm chuyển đổi strikePrice từ blockchain format (integer) sang display format (float)
+// Function to convert strikePrice from blockchain format (integer) to display format (float)
 export const formatStrikePriceFromContract = (strikePriceInteger: string, multiplier: number = 100000000): string => {
   if (!strikePriceInteger) return "0";
   const price = parseInt(strikePriceInteger);
   return (price / multiplier).toFixed(2);
 };
 
-// Hàm chuyển đổi strikePrice từ display format (float) sang blockchain format (integer)
+// Function to convert strikePrice from display format (float) to blockchain format (integer)
 export const formatStrikePriceForContract = (strikePriceFloat: string, multiplier: number = 100000000): number => {
   if (!strikePriceFloat) return 0;
   const price = parseFloat(strikePriceFloat);

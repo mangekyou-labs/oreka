@@ -18,7 +18,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [balance, setBalance] = useState('');
 
   /**
-   * Khởi tạo ví từ localStorage nếu có
+   * initial wallet from localStorage
    */
   useEffect(() => {
     const initWallet = async () => {
@@ -42,7 +42,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   /**
-   * Lắng nghe sự thay đổi tài khoản MetaMask
+   * Update wallet
    */
   useEffect(() => {
     if (typeof window.ethereum !== 'undefined') {
@@ -74,7 +74,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   /**
-   * Kết nối MetaMask
+   * Connect wallet
    */
   const connectWallet = async () => {
     if (typeof window.ethereum !== 'undefined') {
@@ -98,7 +98,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   /**
-   * Ngắt kết nối ví
+   * disconnect wallet
    */
   const disconnectWallet = () => {
     setWalletAddress('');
@@ -108,7 +108,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   /**
-   * Làm mới số dư
+   * refresh balance of wallet address
    */
   const refreshBalance = useCallback(async () => {
     if (walletAddress && typeof window.ethereum !== 'undefined') {
