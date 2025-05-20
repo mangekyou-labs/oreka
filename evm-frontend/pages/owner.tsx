@@ -19,7 +19,7 @@ const OwnerPage = () => {
       }
     };
     autoConnect();
-  }, []);
+  }, [isConnected, connectWallet, router]);
 
   if (!isConnected) {
     return <div>Connecting wallet...</div>;

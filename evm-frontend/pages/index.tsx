@@ -1,11 +1,18 @@
 import type { NextPage } from "next";
-import Head from "next/head";
-import UpDownContainer from "../src/views/plays/UpDownContainer";
-import Owner from "../src/components/Owner";
+
 import { useAuth } from "../src/context/AuthContext";
 import { useEffect } from "react";
 import { useRouter } from "next/router";
 import ListAddressOwner from "../src/components/ListAddressOwner";
+
+export const getServerSideProps = async (context) => {
+  return {
+    redirect: {
+      destination: '/listaddress/1',
+      permanent: false, 
+    },
+  };
+};
 
 const Home: NextPage = () => {
   const { isConnected, walletAddress, connectWallet } = useAuth();
@@ -18,12 +25,12 @@ const Home: NextPage = () => {
           await connectWallet();
         } catch (error) {
           console.error("Auto connect failed:", error);
-          router.push('/listaddress');
+          router.push('/listaddress/1');
         }
       }
     };
     autoConnect();
-  }, []);
+  }, [connectWallet, isConnected, router]);
 
   if (!isConnected) {
     return <div>Connecting wallet...</div>;

@@ -1,30 +1,30 @@
 import React, { useEffect, useState } from "react";
-import { Flex, Text, HStack } from "@chakra-ui/react";
+import { Flex, Text, HStack, Icon } from "@chakra-ui/react";
 import { MdOutlineAccountBalanceWallet } from "react-icons/md";
 import { ethers } from "ethers";
 
 function Header({ walletAddress }: { walletAddress: string }) {
-  const [balance, setBalance] = useState("0"); // Số dư của ví
+  const [balance, setBalance] = useState("0"); /// balance of wallet
 
-  // Hàm để lấy số dư của địa chỉ ví
+  // get balance of wallet
   const fetchBalance = async (address: string) => {
     if (window.ethereum) {
       try {
         const provider = new ethers.providers.Web3Provider(window.ethereum);
         const balance = await provider.getBalance(address);
-        setBalance(ethers.utils.formatEther(balance)); // Chuyển đổi từ wei sang ETH
+        setBalance(ethers.utils.formatEther(balance)); // revert wei in to eth
       } catch (error) {
         console.error("Error fetching balance:", error);
       }
     }
   };
 
-  // Gọi hàm lấy số dư khi ví được kết nối
+  // call fetBalance when connect wallet
   useEffect(() => {
     if (walletAddress) {
       fetchBalance(walletAddress);
     }
-  }, [walletAddress]); // Chạy lại khi địa chỉ ví thay đổi
+  }, [walletAddress]); 
 
   return (
     <Flex
@@ -33,7 +33,7 @@ function Header({ walletAddress }: { walletAddress: string }) {
       alignItems="center"
       direction="column"
     >
-      {/* Hiển thị số dư và địa chỉ ví nếu đã kết nối */}
+      {/* show wallet address and balance when connect wallet */}
       {walletAddress && (
         <HStack spacing="20px" mt="30px" align="center">
           <Flex
@@ -44,7 +44,7 @@ function Header({ walletAddress }: { walletAddress: string }) {
             boxShadow="lg"
             pl={3}
           >
-            <MdOutlineAccountBalanceWallet size={24} color="#FEDF56" />
+            <Icon as={MdOutlineAccountBalanceWallet as React.ElementType} boxSize={6} color="#FEDF56" />
             <Text ml={2} fontSize="md" color="#FEDF56">
               {balance} ETH
             </Text>
@@ -58,7 +58,7 @@ function Header({ walletAddress }: { walletAddress: string }) {
             boxShadow="lg"
             pl={3}
           >
-            <MdOutlineAccountBalanceWallet size={24} color="#FEDF56" />
+            <Icon as={MdOutlineAccountBalanceWallet as React.ElementType} boxSize={6} color="#FEDF56" />
             <Text ml={2} fontSize="md" color="#FEDF56">
               {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
             </Text>

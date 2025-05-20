@@ -27,16 +27,12 @@ contract MyScript is Script {
 
         // Sepolia SNX/USD feed address: 0xc0F82A46033b8BdBA4Bb0B0e28Bc2006F64355bC
 
-        // demo example: define strikePrice for SNX/USD pair at 1.66USD and owner will call the resolveMarket() around August 13th 2024.
-        BinaryOptionMarket binaryOptionMarket = new BinaryOptionMarket(
-            ownerPublicKey,
-            0x3df7c674a27E25e41dEbDe3Fc463912FB95124CD,
-            "ICP/USD",
-            500000,
-            1745558970,
-            10,
-            1
-        );
-        vm.stopBroadcast();
-    }
-}
+//         // demo example: define strikePrice for SNX/USD pair at 1.66USD and owner will call the resolveMarket() around August 13th 2024.
+//         BinaryOptionMarket binaryOptionMarket = new BinaryOptionMarket(
+//             ownerPublicKey,
+//             0xc0F82A46033b8BdBA4Bb0B0e28Bc2006F64355bC,
+//             166000
+//         );
+//         vm.stopBroadcast();
+//     }
+// }
