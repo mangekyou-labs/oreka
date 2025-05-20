@@ -13,12 +13,11 @@ import {
   Link, Skeleton, UnorderedList, ListItem
 } from '@chakra-ui/react';
 import { ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons';
-import { FaWallet, FaChevronLeft, FaArrowUp, FaArrowDown, FaCoins, FaChevronRight, FaRegClock } from 'react-icons/fa';
+import { FaWallet, FaChevronLeft, FaArrowUp, FaArrowDown, FaRegClock } from 'react-icons/fa';
 import { PiChartLineUpLight } from "react-icons/pi";
 import { CheckIcon } from '@chakra-ui/icons';
 import { GrInProgress } from "react-icons/gr";
 import { ethers } from 'ethers';
-import { motion, useAnimation } from 'framer-motion';
 import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketChainlinkABI.json';
 import { PriceService, PriceData } from '../services/PriceService';
 import { useRouter } from 'next/router';
@@ -651,6 +650,14 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     fetchUserPositions();
   }, [fetchUserPositions, walletAddress]);
 
+  useEffect(() => {
+    // Fetch contract balance on mount
+    localStorage.removeItem('userPositions');
+
+    // Call 
+    fetchUserPositions();
+  }, [walletAddress]);
+
 
 
   /**
@@ -999,10 +1006,10 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
 
   // Effect to check claim eligibility
   useEffect(() => {
-    if (currentPhase === Phase.Expiry) {
+    if (currentPhase === Phase.Expiry || walletAddress) {
       canClaimReward();
     }
-  }, [currentPhase, canClaimReward]);
+  }, [currentPhase, walletAddress, canClaimReward]);
 
   // Function to start bidding
   const startBidding = async () => {
@@ -1329,7 +1336,10 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
     }
   };
 
+
   const [canOwnerWithdraw, setCanOwnerWithdraw] = useState(false);
+  const [isWithdrawing, setIsWithdrawing] = useState(true);
+  const [withdrawalAmount, setWithdrawalAmount] = useState(0);
 
   const canWithdraw = useCallback(async () => {
     if (!contract || !isOwner || currentPhase !== Phase.Expiry) {
@@ -1373,15 +1383,13 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
   }, [currentPhase, canWithdraw]);
 
 
-  const [isWithdrawing, setIsWithdrawing] = useState(false);
-  const [withdrawalAmount, setWithdrawalAmount] = useState(0);
+
 
   // Function to withdraw funds
   const handleWithdraw = async () => {
     if (!contract || !isOwner || currentPhase !== Phase.Expiry) return;
 
     try {
-      setIsWithdrawing(true);
 
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
@@ -1400,7 +1408,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
       setIsWithdrawing(false);
       setContractBalance(0);
       setFeeAmount(0);
-      localStorage.removeItem('contractData');
 
       toast({
         title: "Success",
@@ -2320,7 +2327,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                 </HStack>
               </Flex>
             )}
-            {reward > 0 && currentPhase === Phase.Expiry && (
+            {reward > 0 && currentPhase === Phase.Expiry && showClaimButton && (
               <Button
                 onClick={claimReward}
                 colorScheme="yellow"
@@ -2334,7 +2341,7 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                 Claim {reward.toFixed(5)} ETH
               </Button>
             )}
-            {isOwner && feeAmount > 0 && currentPhase === Phase.Expiry && isWithdrawing && (
+            {isOwner && feeAmount > 0 && currentPhase === Phase.Expiry && isWithdrawing && canOwnerWithdraw && (
               <Button
                 onClick={handleWithdraw}
                 colorScheme="yellow"
@@ -2426,7 +2433,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
                   >
 
                   </Box>
-
                 </Flex>
 
                 {shortPercentage > 8 && (
@@ -2559,20 +2565,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               </Flex>
             </Box>
           )}
-          <Box p={4} borderRadius="xl" mb={4} borderWidth={1} borderColor="gray.700">
-            <Text fontSize="lg" fontWeight="bold" mb={3} color="white">
-              My Holdings
-            </Text>
-            <Button
-              variant="ghost"
-              color="#4169e1"
-              onClick={() => router.push('/listaddress/1?currentTab=My%20Holdings')}
-              rightIcon={FaChevronRight as unknown as JSX.Element}
-              _hover={{ bg: 'rgba(254, 223, 86, 0.1)' }}
-            >
-              Make your first Prediction Market
-            </Button>
-          </Box>
 
           {/* Market Timeline */}
           <Box
@@ -2614,7 +2606,6 @@ function Customer({ contractAddress: initialContractAddress }: CustomerProps) {
               </Text>
             )}
 
-            )}
 
             <Box
               bg="#0B0E16"

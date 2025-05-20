@@ -1,19 +1,19 @@
 import { format, formatDistanceToNow } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 
-// Chuyển đổi timestamp UTC thành thời gian ở múi giờ được chỉ định
+// Converts UTC timestamp to time in specified time zone
 export const formatUTCToZonedTime = (
   timestamp: number, 
   formatStr: string = 'MMM d, yyyy h:mm a',
-  timeZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone // Mặc định là múi giờ của người dùng
+  timeZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone // default is user time zone
 ): string => {
   if (!timestamp) return 'TBD';
   const date = new Date(timestamp * 1000);
   const zonedDate = toZonedTime(date, timeZone);
-  return format(zonedDate, formatStr) + ` (${getTimeZoneAbbr(timeZone)})`;
+  return format(zonedDate, formatStr) + ` (${getTimeZoneAbbr(timeZone)})`; 
 };
 
-// Tính thời gian còn lại từ thời điểm hiện tại đến timestamp đích
+// Calculate the remaining time from the current time to the target timestamp
 export const calculateTimeRemaining = (targetTimestamp: number): string => {
   if (!targetTimestamp) return '';
   const now = new Date();
@@ -23,7 +23,7 @@ export const calculateTimeRemaining = (targetTimestamp: number): string => {
   return formatDistanceToNow(targetDate, { addSuffix: true });
 };
 
-// Lấy viết tắt múi giờ (ET, UTC, v.v.)
+// Get the time zone abbreviation (ET, UTC, etc.)
 export const getTimeZoneAbbr = (timeZone: string): string => {
   const mapping: Record<string, string> = {
     'America/New_York': 'ET',
@@ -34,10 +34,10 @@ export const getTimeZoneAbbr = (timeZone: string): string => {
     'Europe/London': 'GMT'
   };
   
-  // Mặc định hiển thị múi giờ ngắn gọn
+  // Defaults to concise time zone display
   if (mapping[timeZone]) return mapping[timeZone];
   
-  // Nếu không tìm thấy trong mapping, tạo viết tắt dựa trên offset
+  // If not found in mapping, create abbreviation based on offset
   const now = new Date();
   const formatter = new Intl.DateTimeFormat('en', {
     timeZone,
@@ -48,12 +48,12 @@ export const getTimeZoneAbbr = (timeZone: string): string => {
   return tzPart ? tzPart.value : 'Local';
 };
 
-// Chuyển đổi thời gian sang Unix timestamp (giây)
+// Convert time to Unix timestamp (seconds)
 export const toUnixTimestamp = (date: Date): number => {
   return Math.floor(date.getTime() / 1000);
 };
 
-// Lấy thời gian hiện tại dưới dạng Unix timestamp (giây)
+// Get the current time as Unix timestamp (seconds)
 export const getCurrentUnixTimestamp = (): number => {
   return Math.floor(Date.now() / 1000);
 };
@@ -68,11 +68,11 @@ export const formatTimeRemaining = (timestamp: number): string => {
 };
 
 /**
- * Chuyển đổi ngày và giờ thành timestamp (Unix epoch) sử dụng múi giờ của trình duyệt
- * @param date - Ngày ở định dạng YYYY-MM-DD
- * @param time - Thời gian ở định dạng HH:MM
- * @returns Timestamp tính bằng giây
- */
+* Converts date and time to timestamp (Unix epoch) using browser timezone
+* @param date - Date in YYYY-MM-DD format
+* @param time - Time in HH:MM format
+* @returns Timestamp in seconds
+*/
 export const createMaturityTimestamp = (date: string, time: string): number => {
   if (!date || !time) return 0;
 
@@ -84,12 +84,12 @@ export const createMaturityTimestamp = (date: string, time: string): number => {
 };
 
 /**
- * Định dạng timestamp thành chuỗi ngày giờ theo định dạng cụ thể
- * Sử dụng múi giờ của trình duyệt
- * @param timestamp - Timestamp tính bằng giây
- * @param formatString - Định dạng output (mặc định: 'MMM d, yyyy h:mm a')
- * @returns Chuỗi ngày giờ đã định dạng
- */
+* Formats timestamp to datetime string in specific format
+* Uses browser timezone
+* @param timestamp - Timestamp in seconds
+* @param formatString - Output format (default: 'MMM d, yyyy h:mm a')
+* @returns Formatted datetime string
+*/
 export const formatTimeToLocal = (timestamp: number, formatString: string = 'MMM d, yyyy h:mm a'): string => {
   if (!timestamp) return 'Not set';
   try {
@@ -102,10 +102,10 @@ export const formatTimeToLocal = (timestamp: number, formatString: string = 'MMM
 };
 
 /**
- * Tính thời gian còn lại đến một timestamp
- * @param targetTimestamp - Timestamp đích tính bằng giây
- * @returns Chuỗi thời gian còn lại
- */
+* Calculates the time remaining to a timestamp
+* @param targetTimestamp - Target timestamp in seconds
+* @returns String of remaining time
+*/
 export const getTimeRemaining = (targetTimestamp: number): string => {
   if (!targetTimestamp) return 'Unknown';
   
@@ -131,27 +131,27 @@ export const getTimeRemaining = (targetTimestamp: number): string => {
 };
 
 /**
- * Chuyển đổi timestamp thành đối tượng Date
- * @param timestamp - Timestamp tính bằng giây
- * @returns Đối tượng Date
- */
+* Convert timestamp to Date object
+* @param timestamp - Timestamp in seconds
+* @returns Date object
+*/
 export const timestampToDate = (timestamp: number): Date => {
   return new Date(timestamp * 1000);
 };
 
 /**
- * Lấy timestamp hiện tại (tính bằng giây)
- * @returns Timestamp hiện tại
- */
+* Get the current timestamp (in seconds)
+* @returns Current Timestamp
+*/
 export const getCurrentTimestamp = (): number => {
   return Math.floor(Date.now() / 1000);
 };
 
 /**
- * Kiểm tra xem một timestamp đã qua hay chưa
- * @param timestamp - Timestamp cần kiểm tra (tính bằng giây)
- * @returns true nếu timestamp đã qua, false nếu chưa
- */
+* Check if a timestamp has passed
+* @param timestamp - Timestamp to check (in seconds)
+* @returns true if timestamp has passed, false if not
+*/
 export const isTimestampPassed = (timestamp: number): boolean => {
   return getCurrentTimestamp() >= timestamp;
 }; 

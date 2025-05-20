@@ -1,26 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ethers } from 'ethers';
-import { Box, Button, HStack, Icon, Text, VStack, SimpleGrid, Flex, Input, Select, Divider, Progress, InputGroup, InputRightAddon, Spinner, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Tooltip, Spacer, Image, InputRightElement } from '@chakra-ui/react';
+import { Box, Button, HStack, Icon, Text, VStack, SimpleGrid, Flex, Input, Select, Divider, InputGroup, Image, InputRightElement } from '@chakra-ui/react';
 
-import { FaCalendarDay, FaPlayCircle, FaClock, FaCheckCircle, FaListAlt, FaRegClock, FaDollarSign } from 'react-icons/fa'; // Import các biểu tượng
-import { IoWalletOutline } from "react-icons/io5";
-import { FaEthereum, FaWallet, FaTrophy, FaArrowUp, FaArrowDown, FaSearch } from 'react-icons/fa';
-import { GoInfinity } from "react-icons/go";
+import { FaRegClock, FaDollarSign } from 'react-icons/fa';
+import { FaEthereum, FaWallet, FaSearch } from 'react-icons/fa';
 import { TbDropletHalf2Filled } from "react-icons/tb";
 import { GrDeploy } from 'react-icons/gr';
 import { SiBitcoinsv, SiChainlink, SiExpertsexchange } from "react-icons/si";
-import { FaCoins } from "react-icons/fa";
 import Factory from '../contracts/abis/FactoryABI.json';
 import { useToast } from '@chakra-ui/react';
 import { useRouter } from 'next/router';
 import { FACTORY_ADDRESS } from '../config/contracts';
-import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketChainlinkABI.json';
+import BinaryOptionMarket from '../contracts/abis/BinaryOptionMarketABI.json';
 import { useAuth } from '../context/AuthContext';
 import { PriceService } from '../services/PriceService';
 import { format, formatDistanceToNow } from 'date-fns';
-import { determineMarketResult } from '../utils/market';
 import { getCurrentTimestamp, isTimestampPassed, getTimeRemaining, formatTimeToLocal } from '../utils/timeUtils';
-import { STRIKE_PRICE_MULTIPLIER } from '../utils/constants';
 import { getChartSymbolFromTradingPair } from '../utils/priceFeeds';
 
 interface ListAddressOwnerProps {
@@ -28,7 +23,7 @@ interface ListAddressOwnerProps {
   page: number;
 }
 
-// ContractData interface
+
 interface ContractData {
   address: string;
   deployTime: number;
@@ -43,7 +38,6 @@ interface ContractData {
   indexBg: string;
 }
 
-// Phase enum
 enum Phase { Trading, Bidding, Maturity, Expiry }
 
 
@@ -79,33 +73,6 @@ const getPhaseName = (phase: number) => {
   }
 };
 
-
-// Function to get market title JSX
-const getMarketTitleJSX = (contract: any): JSX.Element => {
-  const text = getMarketTitleText(contract);
-
-  const bgColors = [
-    "#6EE7B7", "#FCD34D", "#FCA5A5", "#A5B4FC", "#F9A8D4",
-    "#FDBA74", "#67E8F9", "#C4B5FD", "#F87171", "#34D399"
-  ];
-  const indexBg = contract.indexBg ?? 0;
-  const bgColor = bgColors[indexBg % bgColors.length];
-
-  const pair = contract.tradingPair.replace('/', '-');
-  const pairColor = "#FEDF56";
-
-  return (
-    <Text>
-      <Text as="span" color={pairColor} fontWeight="semibold">{pair}</Text>{' '}
-      will reach{' '}
-      <Text as="span" color={bgColor} fontWeight="bold">
-        ${text.split('$')[1]?.split(' ')[0]}
-      </Text>{' '}
-      by {text.split('by ')[1]}
-    </Text>
-  );
-};
-
 /**
  * ListAddressOwner Component
  * Displays a list of binary option markets owned by a specific address
@@ -135,13 +102,10 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
   const contractsPerPage = 12;
   const [currentContracts, setCurrentContracts] = useState<ContractData[]>([]);
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<ContractData[]>([]);
-
-
   // Factory contract address for interacting with the main factory
   const FactoryAddress = FACTORY_ADDRESS;
 
+  // Get deployed contracts for the specified owner address
   const [marketResults, setMarketResults] = useState<{ [key: string]: string }>({});
   // Tab selection for filtering markets
   const [currentTab, setCurrentTab] = useState<string>('All Markets');
@@ -150,11 +114,11 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
   // Trading pair filter
   const [currentTradingPairFilter, setCurrentTradingPairFilter] = useState<string | null>(null);
 
-  // One week ago timestamp
-  const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-
   // User holdings contracts
   const [userHoldingsContracts, setUserHoldingsContracts] = useState<string[]>([]);
+
+  // Update current phase when it change
+  const [currentPhase, setCurrentPhase] = useState<number>(Phase.Trading);
 
   /**
    * Filters contracts based on the currently selected tab
@@ -276,35 +240,13 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
 
 
   /**
-   * Calculates total page count based on number of contracts and pagination settings
-   * Provides a navigation handler for changing pages
-   */
-  // const totalPages = Math.ceil(deployedContracts.length / contractsPerPage);
-
-  /**
-   * Handles pagination navigation
-   * @param {number} page - Target page number to navigate to
-   */
-  // const handlePageChange = (page: number) => {
-  //   if (page !== currentPage) { // Only change if page is different from current
-  //     router.push(`/listaddress/page${page}`);
-  //   }
-  // };
-
-  /**
  * Updates displayed contracts when page changes or when contract data updates
  * Slices the full contracts array to show only the current page's worth of contracts
  */
   useEffect(() => {
-    // Sort deployedContracts first to show newest contracts first
-    const sortedContracts = [...deployedContracts].sort((a, b) => {
-      // Use deployment time for sorting - newer contracts first
-      return new Date(b.createDate).getTime() - new Date(a.createDate).getTime();
-    });
-
     const indexOfLastContract = page * contractsPerPage;
     const indexOfFirstContract = indexOfLastContract - contractsPerPage;
-    const newCurrentContracts = sortedContracts.slice(indexOfFirstContract, indexOfLastContract);
+    const newCurrentContracts = deployedContracts.slice(indexOfFirstContract, indexOfLastContract);
     setCurrentContracts(newCurrentContracts);
   }, [deployedContracts, page]);
 
@@ -316,26 +258,9 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
     fetchDeployedContracts();
   }, [ownerAddress, page]);
 
-  useEffect(() => {
-    const cached = sessionStorage.getItem('cachedDeployedContracts');
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        setDeployedContracts(parsed);
-        setLoading(false);
-        sessionStorage.removeItem('cachedDeployedContracts');
-      } catch (err) {
-        console.error("Error parsing cached deployed contracts:", err);
-        fetchDeployedContracts();
-      }
-    } else {
-      fetchDeployedContracts();
-    }
-  }, []);
-
   /**
    * Fetches all deployed contracts from the blockchain
-   * Retrieves contracts from factory events to show all deployed contracts
+   * Retrieves contracts from known owners and falls back to event logs if needed
    */
   const fetchDeployedContracts = async () => {
     try {
@@ -534,36 +459,11 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
 
   /**
  * Initial contract data loading when owner address changes
- * Sorts contracts by creation date (newest first)
  */
   useEffect(() => {
-    const fetchAndSortContracts = async () => {
-      await fetchDeployedContracts();
-
-      // Sort contracts with newest first after fetching
-      setDeployedContracts(prevContracts => {
-        return [...prevContracts].sort((a, b) => {
-          return new Date(b.createDate).getTime() - new Date(a.createDate).getTime();
-        });
-      });
-    };
-
-    fetchAndSortContracts();
+    fetchDeployedContracts();
   }, [ownerAddress]);
 
-  /**
-   * Get icon by symbol
-   * @param {string} tradingPair - The trading pair symbol
-   * @returns {React.ReactNode} The icon component
-   */
-  const getIconBySymbol = (tradingPair: string) => {
-    if (tradingPair.includes("BTC")) return SiBitcoinsv;
-    if (tradingPair.includes("ETH")) return FaEthereum;
-    if (tradingPair.includes("LINK")) return SiChainlink;
-    if (tradingPair.includes("SNX")) return SiExpertsexchange;
-    if (tradingPair.includes("WSTETH")) return TbDropletHalf2Filled;
-    return FaDollarSign;
-  };
 
   /**
    * Set up event listeners for new contract deployments
@@ -585,6 +485,16 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       console.log("New contract deployed event received:", contractAddress);
       console.log("Owner:", owner);
       console.log("Index:", index);
+
+      // Fetch the updated phase for the new contract
+      const fetchUpdatedPhase = async () => {
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const contract = new ethers.Contract(contractAddress, BinaryOptionMarket.abi, provider);
+        const phase = await contract.currentPhase();
+        setCurrentPhase(Number(phase));
+      };
+
+      fetchUpdatedPhase();
 
       // Always update contract list when a new contract is deployed
       fetchDeployedContracts();
@@ -625,11 +535,11 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
 
   /**
  * Handles contract selection and navigation
- * Prepares comprehensive data for immediate rendering in Customer.tsx and MarketCharts.tsx
+ * Stores contract data in localStorage and redirects to appropriate view
  * 
  * @param {string} contractAddress - Address of the selected contract
  * @param {string} owner - Owner address of the contract
- * @param {ContractData} contractData - Basic contract data object
+ * @param {ContractData} contractData - Full contract data object
  */
   const handleAddressClick = (contractAddress: string, owner: string, contractData: ContractData) => {
     try {
@@ -826,6 +736,8 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       router.push(`/customer/${contractAddress}`);
     }
   };
+
+
   /**
    * Shortens an Ethereum address for display purposes
    * @param {string} address - The full Ethereum address to shorten
@@ -912,21 +824,12 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
     deployedContracts.forEach(contract => {
       if (!contract) return;
 
-      // Get indexBg from contract data
-      let bgIndex: number;
+      // Read indexBg from contract and convert to number
+      const bgIndex = contract.indexBg ?
+        Math.min(Math.max(parseInt(contract.indexBg), 1), 10) :
+        1;
 
-      if (contract.indexBg && contract.indexBg !== '0') {
-        // Use indexBg from contract
-        bgIndex = parseInt(contract.indexBg);
-        console.log(`Contract ${contract.address} has indexBg from contract: ${bgIndex}`);
-      } else {
-        // Generate a random indexBg if not available
-        bgIndex = 1; // Random value between 1-10
-        console.log(`Contract ${contract.address} using generated indexBg: ${bgIndex}`);
-      }
-
-      // Ensure value is between 1-10
-      bgIndex = Math.min(Math.max(bgIndex, 1), 10);
+      console.log(`Contract ${contract.address} using background index: ${bgIndex}`);
       newImageIndices[contract.address] = bgIndex;
     });
 
@@ -955,44 +858,49 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
     // Make sure these match the format used by Coinbase API (with hyphens)
     const tradingPairs = ['BTC-USD', 'ETH-USD', 'LINK-USD', 'SNX-USD', 'WSTETH-USD'];
 
-    // Get price service instance
+    // Get PriceService instance
     const priceService = PriceService.getInstance();
 
-    // Format pair for display
+    // Create a mapping function to convert from API format to display format
     const formatPairForDisplay = (apiSymbol: string) => apiSymbol.replace('-', '/');
 
-    // Subscribe to WebSocket prices
+    // Subscribe to websocket updates
     const unsubscribe = priceService.subscribeToWebSocketPrices((priceData) => {
+      // When we get a price update, update our state
+      // Convert the symbol format from API format (BTC-USD) to display format (BTC/USD)
       const displaySymbol = formatPairForDisplay(priceData.symbol);
+
       setAssetPrices(prev => ({
         ...prev,
         [displaySymbol]: priceData.price
       }));
-    }, uniquePairs);
 
-    // Fetch initial prices for unique pairs
-    uniquePairs.forEach(async (pair) => {
+      console.log(`Updated price for ${displaySymbol}: $${priceData.price}`);
+    }, tradingPairs);
+
+    // Load initial prices directly
+    tradingPairs.forEach(async (pair) => {
       try {
         const priceData = await priceService.fetchPrice(pair);
         const displaySymbol = formatPairForDisplay(pair);
+
         setAssetPrices(prev => ({
           ...prev,
           [displaySymbol]: priceData.price
         }));
+
+        console.log(`Initial price for ${displaySymbol}: $${priceData.price}`);
       } catch (error) {
         console.error(`Error fetching initial price for ${pair}:`, error);
       }
     });
 
-    // Cleanup WebSocket subscription on unmount
-    return () => unsubscribe();
-  }, [deployedContracts]);
+    // Clean up by unsubscribing when component unmounts
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
-
-  /**
-   * Calculates percentage of long and short positions for each contract
-   * Maps contract addresses to their respective percentages
-   */
   useEffect(() => {
     const newPercentages: { [key: string]: { long: number, short: number } } = {};
 
@@ -1018,7 +926,6 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       }
     });
 
-    // Update contract percentages state
     setContractPercentages(newPercentages);
   }, [deployedContracts]);
 
@@ -1200,11 +1107,12 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
       {/* Application header with wallet connection status */}
       <Flex
         as="header"
+        align="center"
         justify="space-between"
         p={4}
         bg="#0A0B0E"
         borderBottom="1px"
-        borderColor="gray.700"
+        borderColor="gray.200"
         position="sticky"
         top="0"
         zIndex="sticky"
@@ -1386,15 +1294,6 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 </Text>
               </HStack>
 
-              {/* Inject CSS animation
-              <style jsx>{`
-                  @keyframes gradient-border {
-                    0% { background-position: 0% 50%; }
-                    50% { background-position: 100% 50%; }
-                    100% { background-position: 0% 50%; }
-                  }
-                `}
-              </style> */}
             </Box>
 
             <Box
@@ -1425,15 +1324,6 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 {shortenAddress(walletAddress)}
               </Button>
 
-              {/* Inject animation for the border
-              <style jsx>{`
-                  @keyframes gradient-border {
-                    0% { background-position: 0% 50%; }
-                    50% { background-position: 100% 50%; }
-                    100% { background-position: 0% 50%; }
-                  }
-                `}
-              </style> */}
             </Box>
           </HStack>
         ) : (
@@ -1462,7 +1352,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 height: '8px',
               },
               '&::-webkit-scrollbar-thumb': {
-                backgroundColor: 'rgba(100,149,237,0.2)',
+                backgroundColor: 'rgba(0,0,0,0.1)',
                 borderRadius: '4px',
               }
             }}
@@ -1546,7 +1436,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
           // {/* Loading message */}
           <Text color="gray.600">Loading...</Text>
         ) : deployedContracts.length > 0 ? (
-          // {/* Display contracts in a grid layout - 4 columns, which will create 3 rows with 12 items */}
+          // {/* Display contracts in a grid layout */}
           <SimpleGrid
             columns={{ base: 1, md: 2, lg: 3, xl: 4 }}
             spacing={4}
@@ -1558,7 +1448,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                 key={index}
                 p="2px"
                 borderRadius="lg"
-                background="linear-gradient(135deg, #00c6ff, #0072ff, #6a11cb, #2575fc)"
+                background="linear-gradient(135deg, #00c6ff, #0072ff, #6a11cb, #2575fc)" // Gradient border
                 transition="transform 0.2s"
                 _hover={{ transform: 'translateY(-4px)' }}
                 cursor="pointer"
@@ -1597,7 +1487,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
 
                   >
                     <Image
-                      src={`/images/${tradingPair.split('/')[0].toLowerCase()}/${tradingPair.split('/')[0].toLowerCase()}${contractImageIndices[address]?.toString() || '1'}.png`}
+                      src={`/images/${tradingPair.split('/')[0].toLowerCase()}/${tradingPair.split('/')[0].toLowerCase()}${contractImageIndices[address] || 1}.png`}
                       alt={tradingPair}
                       w="100%"
                       h="100%"
@@ -1647,10 +1537,6 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                     >
                       {marketTitles[address] || "Loading..."}
                     </Box>
-
-
-
-
                     <HStack direction="column" w="100%" mb={4} width="100%">
                       {Number(phase) === Phase.Maturity || Number(phase) === Phase.Expiry ? (
                         <Box
@@ -1673,7 +1559,7 @@ const ListAddressOwner: React.FC<ListAddressOwnerProps> = ({ ownerAddress, page 
                           </Text>
                         </Box>
                       ) : (
-                        // Kiểm tra nếu phase là Trading và thời gian đã hết hạn
+                        // Display Expired stetus when contract don't use
                         (Number(phase) === Phase.Trading && Date.now() / 1000 > Number(maturityTime)) ? (
                           <Box
                             w="100%"
