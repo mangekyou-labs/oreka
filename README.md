@@ -1,12 +1,11 @@
-# ICP Prediction Market Layer 🎯
+# Prediction Market Layer on ICP
 
-A decentralized binary options trading platform built on the Internet Computer Protocol (ICP), allowing users to make price direction predictions on cryptocurrency pairs.
+A modularized binary options trading platform built on the Internet Computer Protocol (ICP), allowing users to make price direction predictions on cryptocurrency pairs.
 
 ## Overview 🌟
 
 ### Key Features
 - 📈 Resolved with price feeds via HTTP Outcalls
-- ⚡ 30-second trading windows
 - 🎲 Entire-pool reward/loss per correct/incorrect prediction
 - 🔒 Secure identity management via Internet Identity
 - 💱 Support for multiple cryptocurrency pairs
