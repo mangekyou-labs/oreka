@@ -461,11 +461,13 @@ function ListAddressOwner({ ownerAddress, page }: ListAddressOwnerProps) {
                 return;
             }
 
-            // Calculate pagination
+            const reversedMarkets = [...allMarkets].reverse();
+            console.log("Markets reversed to show latest first");
+
             const startIdx = (page - 1) * CONTRACTS_PER_PAGE;
             const endIdx = startIdx + CONTRACTS_PER_PAGE;
-            const paginatedMarkets = allMarkets.slice(startIdx, endIdx);
-            console.log(`Showing markets ${startIdx + 1}-${Math.min(endIdx, allMarkets.length)} of ${allMarkets.length}`);
+            const paginatedMarkets = reversedMarkets.slice(startIdx, endIdx);
+            console.log(`Showing markets ${startIdx + 1}-${Math.min(endIdx, reversedMarkets.length)} of ${reversedMarkets.length} (latest first)`);
 
             // Transform market data
             console.log("Fetching details for each market in the current page");
@@ -547,10 +549,9 @@ function ListAddressOwner({ ownerAddress, page }: ListAddressOwnerProps) {
 
                 console.log(`Setting ${filteredContractList.length} contracts after filtering by tab '${currentTab}'`);
                 setContracts(filteredContractList);
-                setTotalContracts(allMarkets.length);
-                setTotalPages(Math.ceil(allMarkets.length / CONTRACTS_PER_PAGE));
+                setTotalContracts(reversedMarkets.length);
+                setTotalPages(Math.ceil(reversedMarkets.length / CONTRACTS_PER_PAGE));
 
-                // Calculate percentages for each contract
                 const newPercentages: { [key: string]: { long: number, short: number } } = {};
                 filteredContractList.forEach((contract: ContractData) => {
                     const longAmount = parseFloat(contract.longAmount || '0');

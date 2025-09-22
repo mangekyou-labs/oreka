@@ -58,7 +58,6 @@ const MarketsPage: React.FC = () => {
     const [markets, setMarkets] = useState<Market[]>([]);
     const router = useRouter();
 
-    // Set isClient after component mounts
     useEffect(() => {
         setIsClient(true);
     }, []);
@@ -95,17 +94,17 @@ const MarketsPage: React.FC = () => {
             const factory = new FactoryApiService();
             const result = await factory.getAllContracts();
             if (result.ok) {
-                // Filter to get only binary option markets
                 const marketsList = result.ok
                     .filter(contract => 'type' in contract && contract.type && 'BinaryOptionMarket' in contract.type)
                     .map(contract => ({
                         name: contract.title || 'Unnamed Market',
                         market_type: 'BinaryOptionMarket',
                         canister_id: contract.address.toString()
-                    }));
+                    }))
+                    .reverse();
 
                 setMarkets(marketsList || []);
-                console.log("Markets retrieved:", marketsList);
+                console.log("Markets retrieved (latest first):", marketsList);
             } else {
                 console.error("Failed to fetch markets:", result.err);
             }
@@ -114,7 +113,6 @@ const MarketsPage: React.FC = () => {
         }
     };
 
-    // Check URL for tab selection
     useEffect(() => {
         if (router.pathname.includes('/create-token')) {
             setCurrentTab(2);
@@ -133,7 +131,6 @@ const MarketsPage: React.FC = () => {
     };
 
     const handleMarketCreated = (marketId: string) => {
-        // Navigate to the markets list and refresh
         setRefreshTrigger(prev => prev + 1);
         fetchMarkets(); // Refresh the markets list
         setCurrentTab(0);
@@ -141,14 +138,12 @@ const MarketsPage: React.FC = () => {
     };
 
     const handleTokenCreated = (tokenId: string) => {
-        // Navigate to the markets list and refresh
         setRefreshTrigger(prev => prev + 1);
         fetchMarkets(); // Refresh the markets list
         setCurrentTab(0);
         router.push('/markets');
     };
 
-    // Don't render router-dependent components during SSR
     if (!isClient) {
         return (
             <Box sx={{ bgcolor: "#0A1647", minHeight: "calc(100vh - 64px)" }}>

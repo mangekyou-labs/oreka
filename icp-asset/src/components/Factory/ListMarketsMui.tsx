@@ -23,7 +23,6 @@ import { useRouter } from 'next/router';
 import { FactoryApiService } from '../../service/FactoryService';
 import { AuthClient } from '@dfinity/auth-client';
 
-// Material UI styled components
 const GradientPaper = styled(Paper)(({ theme }) => ({
     background: 'linear-gradient(to right, rgba(15, 23, 42, 0.9), rgba(26, 32, 44, 0.9))',
     borderRadius: theme.shape.borderRadius * 2,
@@ -68,7 +67,6 @@ const CodeDisplay = styled(Paper)(({ theme }) => ({
     },
 }));
 
-// Common contract interface
 interface Contract {
     title: string;
     address: any; // Principal
@@ -84,7 +82,6 @@ interface Contract {
     };
 }
 
-// Transformed contracts for display
 interface DisplayContract {
     name: string;
     contract_type: string;
@@ -102,7 +99,6 @@ interface DisplayContract {
     tradingPair?: string;
 }
 
-// Props interface for ListMarkets component
 interface ListMarketsProps {
     userPrincipal?: string;
     page?: number;
@@ -119,7 +115,6 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
     const router = useRouter();
     const factoryService = new FactoryApiService();
 
-    // Add this to track when the page needs refreshing
     const [lastRefreshed, setLastRefreshed] = useState<number>(Date.now());
 
     useEffect(() => {
@@ -137,7 +132,6 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
         };
     }, [lastRefreshed]); // Depend on lastRefreshed to trigger refresh
 
-    // Function to manually refresh the list
     const refreshMarketsList = () => {
         console.log("Manual refresh requested");
         setIsLoading(true);
@@ -149,12 +143,10 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
         setIsLoading(true);
         setError(null);
 
-        // Add more detailed debugging
         console.log("------------------- MARKET LIST REFRESH -------------------");
         console.log(`Refresh started at ${new Date().toISOString()}`);
 
         try {
-            // Force a fresh identity to avoid caching issues
             const authClient = await AuthClient.create();
             let identity;
             try {
@@ -172,7 +164,6 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                 console.warn("Error getting identity:", e);
             }
 
-            // First approach: Try getAllMarketDetails
             console.log("APPROACH 1: Calling factoryService.getAllMarketDetails()");
             try {
                 const marketDetailsResult = await factoryService.getAllMarketDetails();
@@ -182,7 +173,6 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                     console.log(`Found ${marketDetailsResult.ok.length} markets via getAllMarketDetails`);
                     console.log("Market list:", marketDetailsResult.ok);
 
-                    // Transform the market details for display
                     const allMarketDetails = marketDetailsResult.ok.map((market: any) => {
                         console.log(`Processing market: ${market.name} (${market.canisterId.toString()})`);
                         console.log(`Market data: Strike price=${market.strikePrice}, Trading pair=${market.tradingPair}`);
@@ -196,7 +186,6 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                             }
                         }
 
-                        // Base contract info
                         const displayContract: DisplayContract = {
                             name: market.name || 'Unnamed Market',
                             contract_type: 'BinaryOptionMarket',
@@ -207,9 +196,9 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                         };
 
                         return displayContract;
-                    });
+                    }).reverse(); // Reverse to show latest markets first
 
-                    console.log("Processed market details:", allMarketDetails);
+                    console.log("Processed market details (latest first):", allMarketDetails);
                     setContracts(allMarketDetails);
                     setMarkets(allMarketDetails);
                     setIsLoading(false);
@@ -222,7 +211,6 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                 console.error("Error using getAllMarketDetails:", detailsError);
             }
 
-            // Second approach: Try getAllMarkets for basic info
             console.log("APPROACH 2: Trying factoryService.getAllMarkets()");
             try {
                 const allMarketsResult = await factoryService.getAllMarkets();
@@ -258,9 +246,9 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                             strikePrice: strikePrice,
                             tradingPair: tradingPair
                         };
-                    });
+                    }).reverse(); // Reverse to show latest markets first
 
-                    console.log("Processed getAllMarkets data:", allMarketDetails);
+                    console.log("Processed getAllMarkets data (latest first):", allMarketDetails);
                     setContracts(allMarketDetails);
                     setMarkets(allMarketDetails);
                     setIsLoading(false);
@@ -273,7 +261,6 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                 console.error("Error using getAllMarkets:", marketsError);
             }
 
-            // Third approach (fallback): Use the original getAllContracts method
             console.log("APPROACH 3: Falling back to getAllContracts");
             const result = await factoryService.getAllContracts();
             console.log("getAllContracts API response:", result);
@@ -293,11 +280,9 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                     console.error("Error fetching strike prices:", error);
                 }
 
-                // Transform the contracts for display
                 const allContracts: DisplayContract[] = result.ok.map((contract: Contract) => {
                     console.log("Processing contract:", contract);
 
-                    // Determine contract type
                     let contractType = 'Unknown';
                     if (contract.type && typeof contract.type === 'object') {
                         if ('BinaryOptionMarket' in contract.type) {
@@ -337,10 +322,10 @@ const ListMarketsMui: React.FC<ListMarketsProps> = ({ userPrincipal, page = 1 })
                 console.log("Processed contracts:", allContracts);
 
                 // Filter contracts by type
-                const marketContracts = allContracts.filter(c => c.contract_type === 'BinaryOptionMarket');
+                const marketContracts = allContracts.filter(c => c.contract_type === 'BinaryOptionMarket').reverse(); // Reverse to show latest markets first
                 const tokenContracts = allContracts.filter(c => c.contract_type === 'ICRC1Token');
 
-                console.log(`Found ${marketContracts.length} markets after filtering`);
+                console.log(`Found ${marketContracts.length} markets after filtering (latest first)`);
 
                 setContracts(allContracts);
                 setMarkets(marketContracts);
