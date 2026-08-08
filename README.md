@@ -2,6 +2,10 @@
 
 A modularized binary options trading platform built on the Internet Computer Protocol (ICP), allowing users to make price direction predictions on cryptocurrency pairs.
 
+## Motivation 💡
+
+Oreka is built to make on-chain prediction markets easier to deploy and use on ICP. The project focuses on reusable market infrastructure, transparent settlement, and simple local development so contributors can experiment and ship new market ideas quickly.
+
 ## Overview 🌟
 
 ### Key Features
@@ -79,7 +83,7 @@ A modularized binary options trading platform built on the Internet Computer Pro
 - **Price Feeds**: HTTP Outcalls
 - **State Management**: Redux Toolkit
 
-## Getting Started 🚀
+## Quick Start ⚡
 
 ### Prerequisites
 - dfx CLI
@@ -156,6 +160,8 @@ npm install --legacy-peer-deps
 ```bash
 npm run dev
 ```
+
+## Usage 🧭
 
 ### Creating a Market
 
@@ -238,9 +244,78 @@ Current Features:
 
 - **LMSR AMM**: https://youtu.be/f0sqRKw5vqI
 
-### Calling for ICP Collaboration 📢
+## 🤝 Contributing
 
-If you're interested in contributing to this platform, please DM for further collaboration opportunities.
+### Clone the repo
+
+```bash
+git clone https://github.com/mangekyou-labs/oreka.git
+cd oreka
+```
+
+### Set up and run for local development
+
+```bash
+dfx start --clean
+```
+
+In a new terminal, deploy dependencies and canisters:
+
+```bash
+dfx deps deploy
+dfx deploy icp_ledger_canister --argument "(variant { Init =
+record {
+     token_symbol = \"ICRC1\";
+     token_name = \"L-ICRC1\";
+     minting_account = record { owner = principal \"$(dfx --identity anonymous identity get-principal)\" };
+     transfer_fee = 10_000;
+     metadata = vec {};
+     initial_balances = vec { record { record { owner = principal \"$(dfx identity get-principal)\"; }; 10_000_000_000; }; };
+     archive_options = record {
+         num_blocks_to_archive = 1000;
+         trigger_threshold = 2000;
+         controller_id = principal \"$(dfx --identity anonymous identity get-principal)\";
+     };
+     feature_flags = opt record {
+         icrc2 = true;
+     };
+ }
+})"
+dfx deploy factory
+```
+
+For frontend development:
+
+```bash
+cd icp-asset
+npm install --legacy-peer-deps
+npm run dev
+```
+
+### Build locally
+
+```bash
+cd icp-asset
+npm run build
+```
+
+### Run checks
+
+```bash
+cd icp-asset
+npm run lint
+```
+
+Optional canister smoke test:
+
+```bash
+dfx deploy binary_option_market_test
+dfx canister call binary_option_market_test test
+```
+
+### Submit a pull request
+
+If you'd like to contribute, fork the repository, create a feature branch, and open a pull request targeting `main`.
 
 The Liquidity Tree AMM design enables efficient management of shared liquidity across multiple prediction markets simultaneously, eliminating the traditional need for dedicated market makers. This design allows for:
 
